@@ -1,10 +1,10 @@
 import {
-  Document,
-  Section,
+  type Document,
+  type Section,
   MdError,
-  MutationResult,
-  SearchMatch,
-  SearchSummary,
+  type MutationResult,
+  type SearchMatch,
+  type SearchSummary,
 } from "./types.ts";
 import {
   parseDocument,
@@ -17,7 +17,7 @@ import {
   getFrontmatterContent,
   setFrontmatter,
 } from "./parser.ts";
-import { sectionHash, isValidId } from "./hash.ts";
+import { isValidId } from "./hash.ts";
 import {
   parseFrontmatter,
   stringifyFrontmatter,

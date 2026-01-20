@@ -256,7 +256,7 @@ async function purge(): Promise<void> {
 // ============================================================================
 
 async function autoInit(): Promise<void> {
-  if (!(await exists(WORKTRACK_DIR))) {
+  if (!(await exists(WORKLOG_DIR))) {
     await Deno.mkdir(TASKS_DIR, { recursive: true });
     await saveIndex({ tasks: {} });
   }
@@ -477,7 +477,7 @@ function formatError(error: WtError): string {
 // ============================================================================
 
 async function cmdInit(): Promise<StatusOutput> {
-  if (await exists(WORKTRACK_DIR)) {
+  if (await exists(WORKLOG_DIR)) {
     return { status: "already_initialized" };
   }
   await Deno.mkdir(TASKS_DIR, { recursive: true });
