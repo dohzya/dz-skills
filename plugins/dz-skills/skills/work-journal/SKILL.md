@@ -5,33 +5,38 @@ description: Automatically maintain work documentation during project tasks. Cre
 
 # Work Journal
 
-Maintain work documentation during project tasks through two complementary files.
+Maintain work documentation during project tasks through two complementary
+files.
 
 ## Files
 
-| File | Purpose | Update style |
-|------|---------|--------------|
-| `WORKLOG.md` | Chronological trace of what was tried/tested | Append-only |
-| `CHANGES.md` | Clean summary of validated changes | Maintained (add/edit/remove) |
+| File         | Purpose                                      | Update style                 |
+| ------------ | -------------------------------------------- | ---------------------------- |
+| `WORKLOG.md` | Chronological trace of what was tried/tested | Append-only                  |
+| `CHANGES.md` | Clean summary of validated changes           | Maintained (add/edit/remove) |
 
 ## Behavior
 
 ### Initialization
 
 When starting work on a project:
+
 1. Check if `WORKLOG.md` and `CHANGES.md` exist at project root
-2. **If neither exists**: Ask once whether to track changes (adapt question to user's language)
+2. **If neither exists**: Ask once whether to track changes (adapt question to
+   user's language)
 3. **If files exist**: Use them directly
 
 If user declines, don't create files and don't ask again this session.
 
 ### Language
 
-Adapt file content to the user's working language. If unclear, ask once at initialization.
+Adapt file content to the user's working language. If unclear, ask once at
+initialization.
 
 ### During Work
 
 **WORKLOG.md** — Append when:
+
 - Testing something
 - Trying an approach
 - Running into an error or blocker
@@ -41,11 +46,13 @@ Adapt file content to the user's working language. If unclear, ask once at initi
 Keep it lightweight. Can get long, that's expected.
 
 **CHANGES.md** — Update when:
+
 - User validates a change ("ok", "good", "let's keep this", "perfect", "next")
 - A functional rule is confirmed
 - An architectural decision is locked in
 
-CHANGES.md reflects only validated changes. Edit or remove content if changes are reverted or superseded.
+CHANGES.md reflects only validated changes. Edit or remove content if changes
+are reverted or superseded.
 
 ## WORKLOG.md Format
 
@@ -65,7 +72,8 @@ CHANGES.md reflects only validated changes. Edit or remove content if changes ar
 ### Guidelines
 
 - **Timestamps reflect when work was done**, not when the file is updated
-  - If user asks to update the worklog the next morning for work done the previous evening, use the previous evening's time
+  - If user asks to update the worklog the next morning for work done the
+    previous evening, use the previous evening's time
   - This is a historical trace — accuracy matters
 - New H2 header for each significant moment or session
 - Bullet points under each header
@@ -81,20 +89,25 @@ CHANGES.md reflects only validated changes. Edit or remove content if changes ar
 ## 2025-01-14 09:15
 
 - Goal: add multi-currency support on orders
-- Checked current Order model — single `total` field, no currency tracking per line
+- Checked current Order model — single `total` field, no currency tracking per
+  line
 - Need to understand how totals are calculated before changing the model
 
 ## 2025-01-14 09:35
 
 - First attempt: add `currency` field on OrderLine + group at calculation time
 - Problem: OrderValidator expects single total, breaks 12 tests
-- Root cause: `OrderValidator.validateTotal()` sums all lines regardless of currency, then compares to a single expected total
-- Could patch the validator, but it would be fragile — validation logic scattered across multiple places
+- Root cause: `OrderValidator.validateTotal()` sums all lines regardless of
+  currency, then compares to a single expected total
+- Could patch the validator, but it would be fragile — validation logic
+  scattered across multiple places
 
 ## 2025-01-14 10:01
 
-- New approach: introduce CurrencyBucket to aggregate lines by currency before validation
-- Rationale: keeps validation logic centralized, each bucket validates independently
+- New approach: introduce CurrencyBucket to aggregate lines by currency before
+  validation
+- Rationale: keeps validation logic centralized, each bucket validates
+  independently
 - Implemented CurrencyBucket + updated OrderValidator to iterate buckets
 - All tests pass, validator logic cleaner than before
 - User validated the approach
@@ -102,7 +115,8 @@ CHANGES.md reflects only validated changes. Edit or remove content if changes ar
 ## 2025-01-14 10:45
 
 - Added rule: total per currency must be > 0
-- Edge case found: order with lines canceling out in one currency (e.g., +100 EUR, -100 EUR)
+- Edge case found: order with lines canceling out in one currency (e.g., +100
+  EUR, -100 EUR)
 - Discussed with user: this should be an error, not silently accepted
 - New error code: MIXED_CURRENCY_ZERO_BALANCE
 - User approved the behavior
@@ -113,8 +127,8 @@ CHANGES.md reflects only validated changes. Edit or remove content if changes ar
 ```markdown
 # Changes — [Feature/Context Name]
 
-| Start | End | Reference |
-|-------|-----|-----------|
+| Start      | End        | Reference               |
+| ---------- | ---------- | ----------------------- |
 | YYYY-MM-DD | YYYY-MM-DD | [ticket/issue if known] |
 
 > [Optional: one-line summary]
@@ -123,7 +137,8 @@ CHANGES.md reflects only validated changes. Edit or remove content if changes ar
 
 ## Functional Changes
 
-[Detailed list of business rule changes, validation rules, user-facing behavior...]
+[Detailed list of business rule changes, validation rules, user-facing
+behavior...]
 
 ## Architecture
 
@@ -135,26 +150,30 @@ CHANGES.md reflects only validated changes. Edit or remove content if changes ar
 
 ---
 
-*Last updated: YYYY-MM-DD HH:mm*
+_Last updated: YYYY-MM-DD HH:mm_
 ```
 
 ### Guidelines
 
-- **"Last updated" uses current time** (when the file is modified), unlike WORKLOG timestamps
+- **"Last updated" uses current time** (when the file is modified), unlike
+  WORKLOG timestamps
 
 **Functional Changes** (detailed):
+
 - Validation rules with the actual rule stated
 - Behavior changes with before/after if useful
 - New error cases, edge cases handled
 - Business flow modifications
 
 **Architecture** (detailed for new concepts):
+
 - New patterns with their purpose
 - Restructuring with rationale
 - Component responsibilities
 - Keep it conceptual, not a file list
 
 **Technical** (bullets):
+
 - Significant refactors (name the component)
 - Notable dependencies
 - Important config changes
@@ -163,6 +182,7 @@ CHANGES.md reflects only validated changes. Edit or remove content if changes ar
 ### Updating Strategy
 
 This is a living document, not an append-only log:
+
 - **Add** new points when changes are validated
 - **Modify** existing points if behavior evolves
 - **Remove** points that were reverted or superseded
@@ -173,8 +193,8 @@ This is a living document, not an append-only log:
 ```markdown
 # Changes — Multi-currency order validation
 
-| Start | End | Reference |
-|-------|-----|-----------|
+| Start      | End        | Reference |
+| ---------- | ---------- | --------- |
 | 2025-01-14 | 2025-01-14 | PROJ-1234 |
 
 > Support for orders mixing multiple currencies with per-bucket validation
@@ -193,9 +213,11 @@ This is a living document, not an append-only log:
 ## Architecture
 
 Introduced **CurrencyBucket** concept:
+
 - Aggregates order lines by currency before validation
 - Enables currency-specific validation rules
-- `OrderValidator` delegates to `CurrencyValidationPolicy` for multi-currency rules
+- `OrderValidator` delegates to `CurrencyValidationPolicy` for multi-currency
+  rules
 
 ## Technical
 
@@ -205,12 +227,14 @@ Introduced **CurrencyBucket** concept:
 
 ---
 
-*Last updated: 2025-01-14 11:30*
+_Last updated: 2025-01-14 11:30_
 ```
 
 ## Integration Notes
 
 - **Location**: Both files at project root
 - **Encoding**: UTF-8
-- **On completion**: CHANGES.md serves as base for PR description, changelog, or documentation
-- **WORKLOG.md**: Can be deleted after completion or kept for reference. Consider generating a REX before discarding
+- **On completion**: CHANGES.md serves as base for PR description, changelog, or
+  documentation
+- **WORKLOG.md**: Can be deleted after completion or kept for reference.
+  Consider generating a REX before discarding

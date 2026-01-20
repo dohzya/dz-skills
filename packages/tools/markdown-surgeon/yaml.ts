@@ -26,7 +26,11 @@ export function getNestedValue(obj: unknown, path: string): unknown {
  * Set a nested value in an object using dot notation
  * Creates intermediate objects/arrays as needed
  */
-export function setNestedValue(obj: Record<string, unknown>, path: string, value: unknown): void {
+export function setNestedValue(
+  obj: Record<string, unknown>,
+  path: string,
+  value: unknown,
+): void {
   const parts = path.split(".");
   let current: Record<string, unknown> = obj;
 
@@ -35,7 +39,10 @@ export function setNestedValue(obj: Record<string, unknown>, path: string, value
     const nextPart = parts[i + 1];
     const isNextIndex = /^\d+$/.test(nextPart);
 
-    if (!(part in current) || current[part] === null || typeof current[part] !== "object") {
+    if (
+      !(part in current) || current[part] === null ||
+      typeof current[part] !== "object"
+    ) {
       current[part] = isNextIndex ? [] : {};
     }
     current = current[part] as Record<string, unknown>;
@@ -48,13 +55,19 @@ export function setNestedValue(obj: Record<string, unknown>, path: string, value
 /**
  * Delete a nested value from an object using dot notation
  */
-export function deleteNestedValue(obj: Record<string, unknown>, path: string): boolean {
+export function deleteNestedValue(
+  obj: Record<string, unknown>,
+  path: string,
+): boolean {
   const parts = path.split(".");
   let current: Record<string, unknown> = obj;
 
   for (let i = 0; i < parts.length - 1; i++) {
     const part = parts[i];
-    if (!(part in current) || current[part] === null || typeof current[part] !== "object") {
+    if (
+      !(part in current) || current[part] === null ||
+      typeof current[part] !== "object"
+    ) {
       return false;
     }
     current = current[part] as Record<string, unknown>;

@@ -9,10 +9,10 @@ Track work progress with append-only worklog and on-demand checkpoints.
 
 ## Activation
 
-| Condition | Action |
-|-----------|--------|
-| `.worklog/` exists | Tracking is active, use `wllist` to see current tasks |
-| User says "track this", ">track", "let's track" | Run `wladd --desc "..."` |
+| Condition                                       | Action                                                |
+| ----------------------------------------------- | ----------------------------------------------------- |
+| `.worklog/` exists                              | Tracking is active, use `wllist` to see current tasks |
+| User says "track this", ">track", "let's track" | Run `wladd --desc "..."`                              |
 
 ## Commands
 
@@ -51,6 +51,7 @@ wltrace 250116a "Pivot to CurrencyBucket approach - tests pass"
 ```
 
 **When to trace:**
+
 - Starting something (goal, objective)
 - Trying an approach
 - Hitting an error or blocker
@@ -63,12 +64,14 @@ Keep messages concise. Include "why" for failures and pivots.
 ### Checkpointing
 
 Create checkpoints when:
+
 - `wltrace` outputs `checkpoint recommended` (≥50 entries since last)
 - User asks for a summary of changes or learnings
 - Before a long break or context switch
 - You (the agent) judge it useful to consolidate
 
 **Process:**
+
 1. `wllogs <id>` — get current context
 2. Synthesize entries into coherent changes and learnings
 3. `wlcheckpoint <id> "<changes>" "<learnings>"`
@@ -113,26 +116,32 @@ Use `wlsummary` for end-of-worktree recaps.
 Default output is human-readable text. Use `--json` for structured JSON.
 
 **`wladd`:**
+
 ```
 250116a
 ```
 
 **`wltrace`:**
+
 ```
 ok
 ```
+
 or
+
 ```
 checkpoint recommended (52 entries)
 ```
 
 **`wllist`:**
+
 ```
 250116a  active  "Multi-currency support"  2025-01-16 09:15
 250116b  active  "Fix login bug"  2025-01-16 14:30
 ```
 
 **`wllogs`:**
+
 ```
 task: 250116a
 desc: Multi-currency support
@@ -150,9 +159,11 @@ entries since checkpoint: 2
 ```
 
 **`wlcheckpoint` / `wldone`:**
+
 ```
 checkpoint created
 ```
+
 ```
 task completed
 ```
@@ -170,15 +181,20 @@ Use `wllist` to see all active tasks if you lose track.
 
 ## Guidelines
 
-**Trace often, checkpoint occasionally.** Traces are cheap (append-only). Checkpoints require synthesis.
+**Trace often, checkpoint occasionally.** Traces are cheap (append-only).
+Checkpoints require synthesis.
 
-**Be specific in traces.** "Tried X - failed because Y" is better than "Tried X".
+**Be specific in traces.** "Tried X - failed because Y" is better than "Tried
+X".
 
-**Checkpoints are for consolidation.** Don't just concatenate traces. Synthesize into coherent changes/learnings.
+**Checkpoints are for consolidation.** Don't just concatenate traces. Synthesize
+into coherent changes/learnings.
 
-**Learnings are reusable insights.** Not just "what we did" but "what we learned that applies elsewhere".
+**Learnings are reusable insights.** Not just "what we did" but "what we learned
+that applies elsewhere".
 
-**Suggest checkpoints to user.** When you see `checkpoint recommended` or before a natural break, offer to create one.
+**Suggest checkpoints to user.** When you see `checkpoint recommended` or before
+a natural break, offer to create one.
 
 **Language.** Adapt to user's working language for traces and checkpoints.
 
@@ -191,4 +207,5 @@ Use `wllist` to see all active tasks if you lose track.
     └── 250116a.md       # Task file (frontmatter + entries + checkpoints)
 ```
 
-Task files are Markdown with YAML frontmatter. Old completed tasks (>30 days) are auto-purged.
+Task files are Markdown with YAML frontmatter. Old completed tasks (>30 days)
+are auto-purged.

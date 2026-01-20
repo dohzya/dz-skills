@@ -1,4 +1,5 @@
-import { Document, Section, MdError } from "./types.ts";
+import type { Document, Section } from "./types.ts";
+import { MdError } from "./types.ts";
 import { sectionHash } from "./hash.ts";
 
 const HEADER_REGEX = /^(#{1,6})\s+(.+)$/;
@@ -72,7 +73,10 @@ export async function parseDocument(content: string): Promise<Document> {
       // Last section goes to end of file
       // Trim trailing empty lines for lineEnd
       let lastContentLine = lines.length;
-      while (lastContentLine > sections[i].line && lines[lastContentLine - 1]?.trim() === "") {
+      while (
+        lastContentLine > sections[i].line &&
+        lines[lastContentLine - 1]?.trim() === ""
+      ) {
         lastContentLine--;
       }
       sections[i].lineEnd = lastContentLine;
@@ -88,7 +92,10 @@ export function findSection(doc: Document, id: string): Section | undefined {
 }
 
 /** Find the section containing a given line number (1-indexed) */
-export function findSectionAtLine(doc: Document, lineNum: number): Section | undefined {
+export function findSectionAtLine(
+  doc: Document,
+  lineNum: number,
+): Section | undefined {
   // Find the last section that starts at or before this line
   for (let i = doc.sections.length - 1; i >= 0; i--) {
     if (doc.sections[i].line <= lineNum) {
@@ -106,7 +113,7 @@ export function findSectionAtLine(doc: Document, lineNum: number): Section | und
 export function getSectionEndLine(
   doc: Document,
   section: Section,
-  deep: boolean
+  deep: boolean,
 ): number {
   const sectionIndex = doc.sections.findIndex((s) => s.id === section.id);
   if (sectionIndex === -1) {
@@ -137,7 +144,7 @@ export function getSectionEndLine(
 export function getSectionContent(
   doc: Document,
   section: Section,
-  deep: boolean
+  deep: boolean,
 ): string {
   const endLine = getSectionEndLine(doc, section, deep);
   // Content starts after header line
@@ -188,7 +195,9 @@ export function setFrontmatter(doc: Document, yamlContent: string): void {
 }
 
 /** Check if content starts with a markdown header */
-export function startsWithHeader(content: string): { level: number; title: string } | null {
+export function startsWithHeader(
+  content: string,
+): { level: number; title: string } | null {
   const firstLine = content.split("\n")[0];
   const match = firstLine?.match(HEADER_REGEX);
   if (match) {

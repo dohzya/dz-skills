@@ -90,7 +90,7 @@ export type WtErrorCode =
 export class WtError extends Error {
   constructor(
     public code: WtErrorCode,
-    message: string
+    message: string,
   ) {
     super(message);
     this.name = "WtError";

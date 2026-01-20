@@ -7,6 +7,8 @@ Reusable TypeScript utilities for markdown manipulation.
 ```typescript
 // Import markdown-surgeon exports
 import { findSection, parseDocument } from "@dohzya/tools/markdown-surgeon";
+
+// Import specific modules
 import { expandMagic } from "@dohzya/tools/markdown-surgeon/magic";
 import { isValidId, sectionHash } from "@dohzya/tools/markdown-surgeon/hash";
 

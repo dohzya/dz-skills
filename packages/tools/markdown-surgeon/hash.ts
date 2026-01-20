@@ -2,7 +2,7 @@
 export async function sectionHash(
   level: number,
   title: string,
-  occurrenceIndex: number
+  occurrenceIndex: number,
 ): Promise<string> {
   const input = `${level}:${title.toLowerCase().trim()}:${occurrenceIndex}`;
   const encoder = new TextEncoder();

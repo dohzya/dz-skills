@@ -65,6 +65,7 @@ You can and should maintain `packages/tools/CHANGELOG.md` when making changes.
 
 ## .worklog/
 
-The `.worklog/` directory is a local working directory and should never be committed to git.
+The `.worklog/` directory is a local working directory and should never be
+committed to git.
 
 It is already in `.gitignore`.

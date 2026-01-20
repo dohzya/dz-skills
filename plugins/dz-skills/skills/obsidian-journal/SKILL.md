@@ -18,6 +18,7 @@ Journal/YYYY/YYYY-MM/YYYY-MM-DD/YYYYMMDDHHmm.md
 ```
 
 Example for January 5, 2026 at 14:47:
+
 ```
 Journal/2026/2026-01/2026-01-05/202601051447.md
 ```
@@ -39,7 +40,8 @@ Summary and content here...
 ## Guidelines
 
 1. **Timestamp**: Use current date/time for the path and frontmatter
-2. **Tags**: Always include `Journal` and `Claude`. Add `REX` when storing a REX/post-mortem. Only add other tags if explicitly provided by the user
+2. **Tags**: Always include `Journal` and `Claude`. Add `REX` when storing a
+   REX/post-mortem. Only add other tags if explicitly provided by the user
 3. **Title**: Generate a concise, descriptive title based on the content
 4. **Content**: Structure as clean markdown with:
    - A generated summary when saving conversation context

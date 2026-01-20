@@ -9,7 +9,7 @@
  * - {meta:key} → value from frontmatter (supports nested: {meta:author.name})
  */
 
-import { getNestedValue, formatValue } from "./yaml.ts";
+import { formatValue, getNestedValue } from "./yaml.ts";
 
 /**
  * Get current datetime in ISO format with local timezone
@@ -73,7 +73,10 @@ function getShortDateTime(): string {
  * @param meta Optional frontmatter object for {meta:key} expansion
  * @returns The expanded string
  */
-export function expandMagic(input: string, meta?: Record<string, unknown>): string {
+export function expandMagic(
+  input: string,
+  meta?: Record<string, unknown>,
+): string {
   return input.replace(/\{([^}]+)\}/g, (match, expr: string) => {
     const trimmed = expr.trim();
 

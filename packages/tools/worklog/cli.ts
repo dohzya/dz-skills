@@ -1,26 +1,29 @@
 import {
-  WtError,
-  type Index,
-  type TaskMeta,
-  type Entry,
-  type Checkpoint,
   type AddOutput,
-  type TraceOutput,
-  type LogsOutput,
+  type Checkpoint,
+  type Entry,
+  type Index,
   type ListOutput,
-  type SummaryOutput,
+  type LogsOutput,
   type StatusOutput,
+  type SummaryOutput,
+  type TaskMeta,
+  type TraceOutput,
+  WtError,
 } from "./types.ts";
 import {
-  parseDocument,
   findSection,
-  getSectionEndLine,
-  serializeDocument,
   getFrontmatterContent,
+  getSectionEndLine,
+  parseDocument,
+  serializeDocument,
   setFrontmatter,
 } from "../markdown-surgeon/parser.ts";
 import { sectionHash } from "../markdown-surgeon/hash.ts";
-import { parseFrontmatter, stringifyFrontmatter } from "../markdown-surgeon/yaml.ts";
+import {
+  parseFrontmatter,
+  stringifyFrontmatter,
+} from "../markdown-surgeon/yaml.ts";
 
 // ============================================================================
 // Constants
@@ -147,7 +150,10 @@ async function deleteFile(path: string): Promise<void> {
 
 async function loadIndex(): Promise<Index> {
   if (!(await exists(INDEX_FILE))) {
-    throw new WtError("not_initialized", "Worktrack not initialized. Run 'wt init' first.");
+    throw new WtError(
+      "not_initialized",
+      "Worktrack not initialized. Run 'wt init' first.",
+    );
   }
   const content = await readFile(INDEX_FILE);
   return JSON.parse(content) as Index;
@@ -221,7 +227,10 @@ async function saveTaskContent(taskId: string, content: string): Promise<void> {
 
 function assertActive(meta: TaskMeta): void {
   if (meta.status === "done") {
-    throw new WtError("task_already_done", `Task ${meta.id} is already completed`);
+    throw new WtError(
+      "task_already_done",
+      `Task ${meta.id} is already completed`,
+    );
   }
 }
 
@@ -329,7 +338,9 @@ async function parseTaskFile(content: string): Promise<ParsedTask> {
             const subEnd = getSectionEndLine(doc, subsection, false);
             // Check if this subsection is within current checkpoint
             const nextL2 = doc.sections.find(
-              (s) => s.level === 2 && s.line > section.line && s.line <= checkpointsEnd
+              (s) =>
+                s.level === 2 && s.line > section.line &&
+                s.line <= checkpointsEnd,
             );
             const checkpointEnd = nextL2 ? nextL2.line - 1 : checkpointsEnd;
 
@@ -356,7 +367,7 @@ async function parseTaskFile(content: string): Promise<ParsedTask> {
 
 function getEntriesAfterCheckpoint(
   entries: Entry[],
-  lastCheckpointTs: string | null
+  lastCheckpointTs: string | null,
 ): Entry[] {
   if (!lastCheckpointTs) return entries;
 
@@ -409,7 +420,9 @@ function formatLogs(output: LogsOutput): string {
 
   if (output.entries_since_checkpoint.length > 0) {
     lines.push("");
-    lines.push(`entries since checkpoint: ${output.entries_since_checkpoint.length}`);
+    lines.push(
+      `entries since checkpoint: ${output.entries_since_checkpoint.length}`,
+    );
     for (const entry of output.entries_since_checkpoint) {
       lines.push(`  ${entry.ts}: ${entry.msg}`);
     }
@@ -535,7 +548,10 @@ async function cmdTrace(taskId: string, message: string): Promise<TraceOutput> {
   const checkpointsSection = findSection(doc, checkpointsId);
 
   if (!entriesSection) {
-    throw new WtError("io_error", "Invalid task file: missing # Entries section");
+    throw new WtError(
+      "io_error",
+      "Invalid task file: missing # Entries section",
+    );
   }
 
   // Find insertion point: before # Checkpoints if it exists
@@ -555,7 +571,7 @@ async function cmdTrace(taskId: string, message: string): Promise<TraceOutput> {
   const parsed = await parseTaskFile(serializeDocument(doc));
   const entriesSinceCheckpoint = getEntriesAfterCheckpoint(
     parsed.entries,
-    meta.last_checkpoint
+    meta.last_checkpoint,
   );
 
   if (entriesSinceCheckpoint.length >= CHECKPOINT_THRESHOLD) {
@@ -577,7 +593,7 @@ async function cmdLogs(taskId: string): Promise<LogsOutput> {
   const lastCheckpoint = getLastCheckpoint(checkpoints);
   const entriesSinceCheckpoint = getEntriesAfterCheckpoint(
     entries,
-    meta.last_checkpoint
+    meta.last_checkpoint,
   );
 
   return {
@@ -592,7 +608,7 @@ async function cmdLogs(taskId: string): Promise<LogsOutput> {
 async function cmdCheckpoint(
   taskId: string,
   changes: string,
-  learnings: string
+  learnings: string,
 ): Promise<StatusOutput> {
   await purge();
 
@@ -605,7 +621,10 @@ async function cmdCheckpoint(
   const checkpointsSection = findSection(doc, checkpointsId);
 
   if (!checkpointsSection) {
-    throw new WtError("io_error", "Invalid task file: missing # Checkpoints section");
+    throw new WtError(
+      "io_error",
+      "Invalid task file: missing # Checkpoints section",
+    );
   }
 
   const checkpointsEnd = getSectionEndLine(doc, checkpointsSection, true);
@@ -628,7 +647,10 @@ ${learnings}
   const yamlContent = getFrontmatterContent(doc);
   const frontmatter = parseFrontmatter(yamlContent);
   frontmatter.last_checkpoint = now;
-  setFrontmatter(doc, stringifyFrontmatter(frontmatter as Record<string, unknown>));
+  setFrontmatter(
+    doc,
+    stringifyFrontmatter(frontmatter as Record<string, unknown>),
+  );
 
   await saveTaskContent(taskId, serializeDocument(doc));
 
@@ -638,7 +660,7 @@ ${learnings}
 async function cmdDone(
   taskId: string,
   changes: string,
-  learnings: string
+  learnings: string,
 ): Promise<StatusOutput> {
   await purge();
 
@@ -654,7 +676,10 @@ async function cmdDone(
   const frontmatter = parseFrontmatter(yamlContent);
   frontmatter.status = "done";
   frontmatter.done_at = now;
-  setFrontmatter(doc, stringifyFrontmatter(frontmatter as Record<string, unknown>));
+  setFrontmatter(
+    doc,
+    stringifyFrontmatter(frontmatter as Record<string, unknown>),
+  );
 
   await saveTaskContent(taskId, serializeDocument(doc));
 
@@ -696,8 +721,7 @@ async function cmdSummary(since: string | null): Promise<SummaryOutput> {
   const result: SummaryOutput["tasks"] = [];
 
   for (const [id, info] of Object.entries(index.tasks)) {
-    const include =
-      info.status === "active" ||
+    const include = info.status === "active" ||
       (sinceDate && info.done_at && parseDate(info.done_at) >= sinceDate);
 
     if (!include) continue;
@@ -811,7 +835,10 @@ export async function main(args: string[]): Promise<void> {
 
       case "trace": {
         if (positional.length < 2) {
-          throw new WtError("invalid_args", "Usage: wt trace <task-id> <message>");
+          throw new WtError(
+            "invalid_args",
+            "Usage: wt trace <task-id> <message>",
+          );
         }
         const output = await cmdTrace(positional[0], positional[1]);
         console.log(flags.json ? JSON.stringify(output) : formatTrace(output));
@@ -831,10 +858,14 @@ export async function main(args: string[]): Promise<void> {
         if (positional.length < 3) {
           throw new WtError(
             "invalid_args",
-            "Usage: wt checkpoint <task-id> <changes> <learnings>"
+            "Usage: wt checkpoint <task-id> <changes> <learnings>",
           );
         }
-        const output = await cmdCheckpoint(positional[0], positional[1], positional[2]);
+        const output = await cmdCheckpoint(
+          positional[0],
+          positional[1],
+          positional[2],
+        );
         console.log(flags.json ? JSON.stringify(output) : formatStatus(output));
         break;
       }
@@ -843,10 +874,14 @@ export async function main(args: string[]): Promise<void> {
         if (positional.length < 3) {
           throw new WtError(
             "invalid_args",
-            "Usage: wt done <task-id> <changes> <learnings>"
+            "Usage: wt done <task-id> <changes> <learnings>",
           );
         }
-        const output = await cmdDone(positional[0], positional[1], positional[2]);
+        const output = await cmdDone(
+          positional[0],
+          positional[1],
+          positional[2],
+        );
         console.log(flags.json ? JSON.stringify(output) : formatStatus(output));
         break;
       }
@@ -859,7 +894,9 @@ export async function main(args: string[]): Promise<void> {
 
       case "summary": {
         const output = await cmdSummary(flags.since);
-        console.log(flags.json ? JSON.stringify(output) : formatSummary(output));
+        console.log(
+          flags.json ? JSON.stringify(output) : formatSummary(output),
+        );
         break;
       }
 

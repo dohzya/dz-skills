@@ -55,7 +55,7 @@ export class MdError extends Error {
     public code: ErrorCode,
     message: string,
     public file?: string,
-    public id?: string
+    public id?: string,
   ) {
     super(message);
     this.name = "MdError";

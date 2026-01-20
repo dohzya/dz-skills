@@ -1,30 +1,30 @@
 import {
   type Document,
-  type Section,
   MdError,
   type MutationResult,
   type SearchMatch,
   type SearchSummary,
+  type Section,
 } from "./types.ts";
 import {
-  parseDocument,
   findSection,
   findSectionAtLine,
-  getSectionEndLine,
-  getSectionContent,
-  serializeDocument,
-  startsWithHeader,
   getFrontmatterContent,
+  getSectionContent,
+  getSectionEndLine,
+  parseDocument,
+  serializeDocument,
   setFrontmatter,
+  startsWithHeader,
 } from "./parser.ts";
 import { isValidId } from "./hash.ts";
 import {
-  parseFrontmatter,
-  stringifyFrontmatter,
-  getNestedValue,
-  setNestedValue,
   deleteNestedValue,
   formatValue,
+  getNestedValue,
+  parseFrontmatter,
+  setNestedValue,
+  stringifyFrontmatter,
 } from "./yaml.ts";
 import { expandMagic } from "./magic.ts";
 
@@ -38,8 +38,14 @@ function formatOutline(doc: Document): string {
     .join("\n");
 }
 
-function formatRead(section: Section, content: string, endLine: number): string {
-  const header = `${"#".repeat(section.level)} ${section.title} ^${section.id} L${section.line}-L${endLine}`;
+function formatRead(
+  section: Section,
+  content: string,
+  endLine: number,
+): string {
+  const header = `${
+    "#".repeat(section.level)
+  } ${section.title} ^${section.id} L${section.line}-L${endLine}`;
   if (content.trim() === "") {
     return header;
   }
@@ -47,7 +53,9 @@ function formatRead(section: Section, content: string, endLine: number): string 
 }
 
 function formatMutation(result: MutationResult): string {
-  const range = result.lineEnd ? `L${result.lineStart}-L${result.lineEnd}` : `L${result.lineStart}`;
+  const range = result.lineEnd
+    ? `L${result.lineStart}-L${result.lineEnd}`
+    : `L${result.lineStart}`;
   const delta = [];
   if (result.linesAdded > 0) delta.push(`+${result.linesAdded}`);
   if (result.linesRemoved > 0) delta.push(`-${result.linesRemoved}`);
@@ -86,7 +94,7 @@ function jsonOutline(doc: Document): string {
       level: s.level,
       title: s.title,
       line: s.line,
-    }))
+    })),
   );
 }
 
@@ -161,7 +169,7 @@ async function cmdOutline(
   afterId: string | null,
   last: boolean,
   count: boolean,
-  json: boolean
+  json: boolean,
 ): Promise<string> {
   const content = await readFile(file);
   const doc = await parseDocument(content);
@@ -171,23 +179,37 @@ async function cmdOutline(
   // Filter to subsections after a given section ID
   if (afterId) {
     if (!isValidId(afterId)) {
-      throw new MdError("invalid_id", `Invalid section ID: ${afterId}`, file, afterId);
+      throw new MdError(
+        "invalid_id",
+        `Invalid section ID: ${afterId}`,
+        file,
+        afterId,
+      );
     }
     const parentSection = findSection(doc, afterId);
     if (!parentSection) {
-      throw new MdError("section_not_found", `No section with id '${afterId}' in ${file}`, file, afterId);
+      throw new MdError(
+        "section_not_found",
+        `No section with id '${afterId}' in ${file}`,
+        file,
+        afterId,
+      );
     }
 
     // Get subsections: sections with level > parent and within parent's range
     const parentEndLine = getSectionEndLine(doc, parentSection, true);
     sections = doc.sections.filter(
-      (s) => s.line > parentSection.line && s.line <= parentEndLine && s.level > parentSection.level
+      (s) =>
+        s.line > parentSection.line && s.line <= parentEndLine &&
+        s.level > parentSection.level,
     );
   }
 
   // Return count only
   if (count) {
-    return json ? JSON.stringify({ count: sections.length }) : String(sections.length);
+    return json
+      ? JSON.stringify({ count: sections.length })
+      : String(sections.length);
   }
 
   // Return last section only
@@ -197,15 +219,29 @@ async function cmdOutline(
     }
     const lastSection = sections[sections.length - 1];
     if (json) {
-      return JSON.stringify({ id: lastSection.id, level: lastSection.level, title: lastSection.title, line: lastSection.line });
+      return JSON.stringify({
+        id: lastSection.id,
+        level: lastSection.level,
+        title: lastSection.title,
+        line: lastSection.line,
+      });
     }
-    return `${"#".repeat(lastSection.level)} ${lastSection.title} ^${lastSection.id} L${lastSection.line}`;
+    return `${
+      "#".repeat(lastSection.level)
+    } ${lastSection.title} ^${lastSection.id} L${lastSection.line}`;
   }
 
-  return json ? jsonOutline({ ...doc, sections }) : formatOutline({ ...doc, sections });
+  return json
+    ? jsonOutline({ ...doc, sections })
+    : formatOutline({ ...doc, sections });
 }
 
-async function cmdRead(file: string, id: string, deep: boolean, json: boolean): Promise<string> {
+async function cmdRead(
+  file: string,
+  id: string,
+  deep: boolean,
+  json: boolean,
+): Promise<string> {
   if (!isValidId(id)) {
     throw new MdError("invalid_id", `Invalid section ID: ${id}`, file, id);
   }
@@ -215,12 +251,19 @@ async function cmdRead(file: string, id: string, deep: boolean, json: boolean): 
   const section = findSection(doc, id);
 
   if (!section) {
-    throw new MdError("section_not_found", `No section with id '${id}' in ${file}`, file, id);
+    throw new MdError(
+      "section_not_found",
+      `No section with id '${id}' in ${file}`,
+      file,
+      id,
+    );
   }
 
   const endLine = getSectionEndLine(doc, section, deep);
   const sectionContent = getSectionContent(doc, section, deep);
-  return json ? jsonRead(section, sectionContent, endLine) : formatRead(section, sectionContent, endLine);
+  return json
+    ? jsonRead(section, sectionContent, endLine)
+    : formatRead(section, sectionContent, endLine);
 }
 
 async function cmdWrite(
@@ -228,7 +271,7 @@ async function cmdWrite(
   id: string,
   newContent: string,
   deep: boolean,
-  json: boolean
+  json: boolean,
 ): Promise<string> {
   if (!isValidId(id)) {
     throw new MdError("invalid_id", `Invalid section ID: ${id}`, file, id);
@@ -239,7 +282,12 @@ async function cmdWrite(
   const section = findSection(doc, id);
 
   if (!section) {
-    throw new MdError("section_not_found", `No section with id '${id}' in ${file}`, file, id);
+    throw new MdError(
+      "section_not_found",
+      `No section with id '${id}' in ${file}`,
+      file,
+      id,
+    );
   }
 
   // Expand magic expressions
@@ -282,7 +330,7 @@ async function cmdAppend(
   newContent: string,
   deep: boolean,
   before: boolean,
-  json: boolean
+  json: boolean,
 ): Promise<string> {
   const fileContent = await readFile(file);
   const doc = await parseDocument(fileContent);
@@ -313,7 +361,12 @@ async function cmdAppend(
     const found = findSection(doc, id);
 
     if (!found) {
-      throw new MdError("section_not_found", `No section with id '${id}' in ${file}`, file, id);
+      throw new MdError(
+        "section_not_found",
+        `No section with id '${id}' in ${file}`,
+        file,
+        id,
+      );
     }
     section = found;
 
@@ -328,7 +381,10 @@ async function cmdAppend(
   }
 
   // Add blank line before if inserting after content and content doesn't start with blank
-  if (!before && insertLine > 0 && doc.lines[insertLine - 1]?.trim() !== "" && newLines[0]?.trim() !== "") {
+  if (
+    !before && insertLine > 0 && doc.lines[insertLine - 1]?.trim() !== "" &&
+    newLines[0]?.trim() !== ""
+  ) {
     newLines.unshift("");
   }
 
@@ -347,7 +403,7 @@ async function cmdAppend(
     // Re-parse to get the new section's ID
     const newDoc = await parseDocument(serializeDocument(doc));
     const newSection = newDoc.sections.find(
-      (s) => s.line === insertLine + 1 && s.title === headerInfo.title
+      (s) => s.line === insertLine + 1 && s.title === headerInfo.title,
     );
     if (newSection) {
       resultId = newSection.id;
@@ -366,7 +422,12 @@ async function cmdAppend(
   return json ? jsonMutation(result) : formatMutation(result);
 }
 
-async function cmdEmpty(file: string, id: string, deep: boolean, json: boolean): Promise<string> {
+async function cmdEmpty(
+  file: string,
+  id: string,
+  deep: boolean,
+  json: boolean,
+): Promise<string> {
   if (!isValidId(id)) {
     throw new MdError("invalid_id", `Invalid section ID: ${id}`, file, id);
   }
@@ -376,7 +437,12 @@ async function cmdEmpty(file: string, id: string, deep: boolean, json: boolean):
   const section = findSection(doc, id);
 
   if (!section) {
-    throw new MdError("section_not_found", `No section with id '${id}' in ${file}`, file, id);
+    throw new MdError(
+      "section_not_found",
+      `No section with id '${id}' in ${file}`,
+      file,
+      id,
+    );
   }
 
   const endLine = getSectionEndLine(doc, section, deep);
@@ -401,7 +467,11 @@ async function cmdEmpty(file: string, id: string, deep: boolean, json: boolean):
   return json ? jsonMutation(result) : formatMutation(result);
 }
 
-async function cmdRemove(file: string, id: string, json: boolean): Promise<string> {
+async function cmdRemove(
+  file: string,
+  id: string,
+  json: boolean,
+): Promise<string> {
   if (!isValidId(id)) {
     throw new MdError("invalid_id", `Invalid section ID: ${id}`, file, id);
   }
@@ -411,7 +481,12 @@ async function cmdRemove(file: string, id: string, json: boolean): Promise<strin
   const section = findSection(doc, id);
 
   if (!section) {
-    throw new MdError("section_not_found", `No section with id '${id}' in ${file}`, file, id);
+    throw new MdError(
+      "section_not_found",
+      `No section with id '${id}' in ${file}`,
+      file,
+      id,
+    );
   }
 
   // Remove always includes subsections (deep behavior)
@@ -440,7 +515,7 @@ async function cmdSearch(
   file: string,
   pattern: string,
   summary: boolean,
-  json: boolean
+  json: boolean,
 ): Promise<string> {
   const content = await readFile(file);
   const doc = await parseDocument(content);
@@ -497,7 +572,7 @@ async function cmdMeta(
   key: string | null,
   value: string | null,
   del: boolean,
-  getH1: boolean
+  getH1: boolean,
 ): Promise<string> {
   const fileContent = await readFile(file);
   const doc = await parseDocument(fileContent);
@@ -528,7 +603,10 @@ async function cmdMeta(
   // Set mode
   if (value !== null) {
     if (!key) {
-      throw new MdError("parse_error", "Usage: md meta <file> --set <key> <value>");
+      throw new MdError(
+        "parse_error",
+        "Usage: md meta <file> --set <key> <value>",
+      );
     }
     // Expand magic expressions
     const expandedValue = expandMagic(value, meta);
@@ -544,7 +622,10 @@ async function cmdMeta(
       // Keep as string
     }
     // But if it looks like a simple string, keep it as string
-    if (typeof parsedValue === "object" && Object.keys(parsedValue as object).length === 0) {
+    if (
+      typeof parsedValue === "object" &&
+      Object.keys(parsedValue as object).length === 0
+    ) {
       parsedValue = expandedValue;
     }
     setNestedValue(meta, key, parsedValue);
@@ -568,7 +649,7 @@ async function cmdCreate(
   title: string | null,
   metaEntries: Array<[string, string]>,
   force: boolean,
-  content: string | null
+  content: string | null,
 ): Promise<string> {
   // Check if file exists
   let fileExists = false;
@@ -582,7 +663,11 @@ async function cmdCreate(
   }
 
   if (fileExists && !force) {
-    throw new MdError("io_error", `File already exists: ${file}. Use --force to overwrite.`, file);
+    throw new MdError(
+      "io_error",
+      `File already exists: ${file}. Use --force to overwrite.`,
+      file,
+    );
   }
 
   const lines: string[] = [];
@@ -785,32 +870,61 @@ export async function main(args: string[]): Promise<void> {
     switch (command) {
       case "outline": {
         if (positional.length < 1) {
-          throw new MdError("parse_error", "Usage: md outline <file> [--after ID] [--last] [--count]");
+          throw new MdError(
+            "parse_error",
+            "Usage: md outline <file> [--after ID] [--last] [--count]",
+          );
         }
-        output = await cmdOutline(positional[0], flags.after, flags.last, flags.count, flags.json);
+        output = await cmdOutline(
+          positional[0],
+          flags.after,
+          flags.last,
+          flags.count,
+          flags.json,
+        );
         break;
       }
 
       case "read": {
         if (positional.length < 2) {
-          throw new MdError("parse_error", "Usage: md read [--deep] <file> <id>");
+          throw new MdError(
+            "parse_error",
+            "Usage: md read [--deep] <file> <id>",
+          );
         }
-        output = await cmdRead(positional[0], positional[1], flags.deep, flags.json);
+        output = await cmdRead(
+          positional[0],
+          positional[1],
+          flags.deep,
+          flags.json,
+        );
         break;
       }
 
       case "write": {
         if (positional.length < 2) {
-          throw new MdError("parse_error", "Usage: md write [--deep] <file> <id> [content]");
+          throw new MdError(
+            "parse_error",
+            "Usage: md write [--deep] <file> <id> [content]",
+          );
         }
         const content = positional[2] ?? await readStdin();
-        output = await cmdWrite(positional[0], positional[1], content, flags.deep, flags.json);
+        output = await cmdWrite(
+          positional[0],
+          positional[1],
+          content,
+          flags.deep,
+          flags.json,
+        );
         break;
       }
 
       case "append": {
         if (positional.length < 1) {
-          throw new MdError("parse_error", "Usage: md append [--deep] [--before] <file> [id] [content]");
+          throw new MdError(
+            "parse_error",
+            "Usage: md append [--deep] [--before] <file> [id] [content]",
+          );
         }
         // Check if second positional is an ID (8 hex chars) or content
         const hasId = positional.length >= 2 && isValidId(positional[1]);
@@ -818,15 +932,30 @@ export async function main(args: string[]): Promise<void> {
         const content = hasId
           ? (positional[2] ?? await readStdin())
           : (positional[1] ?? await readStdin());
-        output = await cmdAppend(positional[0], id, content, flags.deep, flags.before, flags.json);
+        output = await cmdAppend(
+          positional[0],
+          id,
+          content,
+          flags.deep,
+          flags.before,
+          flags.json,
+        );
         break;
       }
 
       case "empty": {
         if (positional.length < 2) {
-          throw new MdError("parse_error", "Usage: md empty [--deep] <file> <id>");
+          throw new MdError(
+            "parse_error",
+            "Usage: md empty [--deep] <file> <id>",
+          );
         }
-        output = await cmdEmpty(positional[0], positional[1], flags.deep, flags.json);
+        output = await cmdEmpty(
+          positional[0],
+          positional[1],
+          flags.deep,
+          flags.json,
+        );
         break;
       }
 
@@ -840,15 +969,26 @@ export async function main(args: string[]): Promise<void> {
 
       case "search": {
         if (positional.length < 2) {
-          throw new MdError("parse_error", "Usage: md search [--summary] <file> <pattern>");
+          throw new MdError(
+            "parse_error",
+            "Usage: md search [--summary] <file> <pattern>",
+          );
         }
-        output = await cmdSearch(positional[0], positional[1], flags.summary, flags.json);
+        output = await cmdSearch(
+          positional[0],
+          positional[1],
+          flags.summary,
+          flags.json,
+        );
         break;
       }
 
       case "concat": {
         if (positional.length < 1) {
-          throw new MdError("parse_error", "Usage: md concat [--shift[=N]] <files...>");
+          throw new MdError(
+            "parse_error",
+            "Usage: md concat [--shift[=N]] <files...>",
+          );
         }
         output = await cmdConcat(positional, flags.shift);
         break;
@@ -856,13 +996,19 @@ export async function main(args: string[]): Promise<void> {
 
       case "meta": {
         if (positional.length < 1) {
-          throw new MdError("parse_error", "Usage: md meta <file> [key] or md meta <file> --set <key> <value>");
+          throw new MdError(
+            "parse_error",
+            "Usage: md meta <file> [key] or md meta <file> --set <key> <value>",
+          );
         }
         const file = positional[0];
         const key = positional[1] ?? null;
         const value = flags.set ? (positional[2] ?? null) : null;
         if (flags.set && !key) {
-          throw new MdError("parse_error", "Usage: md meta <file> --set <key> <value>");
+          throw new MdError(
+            "parse_error",
+            "Usage: md meta <file> --set <key> <value>",
+          );
         }
         if (flags.del && !key) {
           throw new MdError("parse_error", "Usage: md meta <file> --del <key>");
@@ -873,10 +1019,19 @@ export async function main(args: string[]): Promise<void> {
 
       case "create": {
         if (positional.length < 1) {
-          throw new MdError("parse_error", "Usage: md create <file> [--title T] [--meta k=v] [content]");
+          throw new MdError(
+            "parse_error",
+            "Usage: md create <file> [--title T] [--meta k=v] [content]",
+          );
         }
         const content = positional[1] ?? null;
-        output = await cmdCreate(positional[0], flags.title, flags.meta, flags.force, content);
+        output = await cmdCreate(
+          positional[0],
+          flags.title,
+          flags.meta,
+          flags.force,
+          content,
+        );
         break;
       }
 

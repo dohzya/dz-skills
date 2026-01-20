@@ -2,39 +2,39 @@
 
 // Types
 export type {
-  Section,
   Document,
+  ErrorCode,
   MutationResult,
   SearchMatch,
   SearchSummary,
-  ErrorCode,
+  Section,
 } from "./types.ts";
 export { MdError } from "./types.ts";
 
 // Parser functions
 export {
-  parseDocument,
   findSection,
   findSectionAtLine,
-  getSectionEndLine,
-  getSectionContent,
-  serializeDocument,
   getFrontmatterContent,
+  getSectionContent,
+  getSectionEndLine,
+  parseDocument,
+  serializeDocument,
   setFrontmatter,
   startsWithHeader,
 } from "./parser.ts";
 
 // Hash utilities
-export { sectionHash, isValidId } from "./hash.ts";
+export { isValidId, sectionHash } from "./hash.ts";
 
 // YAML utilities
 export {
-  getNestedValue,
-  setNestedValue,
   deleteNestedValue,
-  parseFrontmatter,
-  stringifyFrontmatter,
   formatValue,
+  getNestedValue,
+  parseFrontmatter,
+  setNestedValue,
+  stringifyFrontmatter,
 } from "./yaml.ts";
 
 // Magic expressions
