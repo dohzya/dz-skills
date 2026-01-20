@@ -1,0 +1,7 @@
+{
+  "workspace": ["./packages/tools"],
+  "tasks": {
+    "test": "deno test --allow-read --allow-write",
+    "check": "deno check packages/tools/mod.ts"
+  }
+}
