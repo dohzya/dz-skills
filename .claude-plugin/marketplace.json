@@ -9,37 +9,9 @@
   },
   "plugins": [
     {
-      "name": "markdown-surgeon",
-      "source": "./skills/markdown-surgeon",
-      "description": "Manipulate Markdown files surgically by section",
-      "version": "1.0.0",
-      "license": "MIT"
-    },
-    {
-      "name": "obsidian-journal",
-      "source": "./skills/obsidian-journal",
-      "description": "Create journal entries in Obsidian",
-      "version": "1.0.0",
-      "license": "MIT"
-    },
-    {
-      "name": "rex-session",
-      "source": "./skills/rex-session",
-      "description": "Generate structured REX from technical conversations",
-      "version": "1.0.0",
-      "license": "MIT"
-    },
-    {
-      "name": "work-journal",
-      "source": "./skills/work-journal",
-      "description": "Maintain work documentation with WORKLOG.md and CHANGES.md",
-      "version": "1.0.0",
-      "license": "MIT"
-    },
-    {
-      "name": "worktrack",
-      "source": "./skills/worktrack",
-      "description": "Track work progress with append-only worklog and on-demand checkpoints",
+      "name": "dz-skills",
+      "source": "./plugins/dz-skills",
+      "description": "Markdown manipulation and productivity skills for Claude Code",
       "version": "1.0.0",
       "license": "MIT"
     }
