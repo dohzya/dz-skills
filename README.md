@@ -38,7 +38,7 @@ Automatically maintain work documentation during project tasks with WORKLOG.md a
 The core functionality is available as a JSR package:
 
 ```typescript
-import { parseDocument } from "@dz/tools/markdown-surgeon";
+import { parseDocument } from "@dohzya/tools/markdown-surgeon";
 ```
 
 See [packages/tools/README.md](packages/tools/README.md) for API documentation.

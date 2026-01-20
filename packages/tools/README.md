@@ -1,4 +1,4 @@
-# @dz/tools
+# @dohzya/tools
 
 Reusable TypeScript utilities for markdown manipulation.
 
@@ -6,14 +6,14 @@ Reusable TypeScript utilities for markdown manipulation.
 
 ```typescript
 // Import all markdown-surgeon exports
-import { parseDocument, findSection } from "@dz/tools/markdown-surgeon";
+import { parseDocument, findSection } from "@dohzya/tools/markdown-surgeon";
 
 // Import specific modules
-import { expandMagic } from "@dz/tools/markdown-surgeon/magic";
-import { sectionHash, isValidId } from "@dz/tools/markdown-surgeon/hash";
+import { expandMagic } from "@dohzya/tools/markdown-surgeon/magic";
+import { sectionHash, isValidId } from "@dohzya/tools/markdown-surgeon/hash";
 
 // CLI entry point
-import { main } from "@dz/tools/markdown-surgeon/cli";
+import { main } from "@dohzya/tools/markdown-surgeon/cli";
 ```
 
 ## Modules
@@ -22,7 +22,7 @@ import { main } from "@dz/tools/markdown-surgeon/cli";
 
 Surgical manipulation of Markdown files by section.
 
-#### Parser (`@dz/tools/markdown-surgeon/parser`)
+#### Parser (`@dohzya/tools/markdown-surgeon/parser`)
 
 ```typescript
 import {
@@ -35,7 +35,7 @@ import {
   getFrontmatterContent,
   setFrontmatter,
   startsWithHeader,
-} from "@dz/tools/markdown-surgeon/parser";
+} from "@dohzya/tools/markdown-surgeon/parser";
 
 // Parse a markdown string
 const doc = await parseDocument(content);
@@ -47,7 +47,7 @@ const section = findSection(doc, "a3f2c1d0");
 const text = getSectionContent(doc, section, deep);
 ```
 
-#### Types (`@dz/tools/markdown-surgeon/types`)
+#### Types (`@dohzya/tools/markdown-surgeon/types`)
 
 ```typescript
 import type {
@@ -57,15 +57,15 @@ import type {
   SearchMatch,
   SearchSummary,
   ErrorCode,
-} from "@dz/tools/markdown-surgeon/types";
+} from "@dohzya/tools/markdown-surgeon/types";
 
-import { MdError } from "@dz/tools/markdown-surgeon/types";
+import { MdError } from "@dohzya/tools/markdown-surgeon/types";
 ```
 
-#### Hash (`@dz/tools/markdown-surgeon/hash`)
+#### Hash (`@dohzya/tools/markdown-surgeon/hash`)
 
 ```typescript
-import { sectionHash, isValidId } from "@dz/tools/markdown-surgeon/hash";
+import { sectionHash, isValidId } from "@dohzya/tools/markdown-surgeon/hash";
 
 // Generate section ID
 const id = await sectionHash(level, title, occurrenceIndex);
@@ -74,7 +74,7 @@ const id = await sectionHash(level, title, occurrenceIndex);
 if (isValidId("a3f2c1d0")) { ... }
 ```
 
-#### YAML (`@dz/tools/markdown-surgeon/yaml`)
+#### YAML (`@dohzya/tools/markdown-surgeon/yaml`)
 
 ```typescript
 import {
@@ -84,7 +84,7 @@ import {
   setNestedValue,
   deleteNestedValue,
   formatValue,
-} from "@dz/tools/markdown-surgeon/yaml";
+} from "@dohzya/tools/markdown-surgeon/yaml";
 
 // Parse YAML frontmatter
 const meta = parseFrontmatter(yamlContent);
@@ -93,10 +93,10 @@ const meta = parseFrontmatter(yamlContent);
 const author = getNestedValue(meta, "author.name");
 ```
 
-#### Magic (`@dz/tools/markdown-surgeon/magic`)
+#### Magic (`@dohzya/tools/markdown-surgeon/magic`)
 
 ```typescript
-import { expandMagic } from "@dz/tools/markdown-surgeon/magic";
+import { expandMagic } from "@dohzya/tools/markdown-surgeon/magic";
 
 // Expand magic expressions
 const expanded = expandMagic("Updated: {dt:short}", meta);
@@ -110,10 +110,10 @@ Supported expressions:
 - `{time}` - Time only (HH:MM:SS)
 - `{meta:key}` - Value from frontmatter
 
-#### CLI (`@dz/tools/markdown-surgeon/cli`)
+#### CLI (`@dohzya/tools/markdown-surgeon/cli`)
 
 ```typescript
-import { main } from "@dz/tools/markdown-surgeon/cli";
+import { main } from "@dohzya/tools/markdown-surgeon/cli";
 
 // Run CLI with arguments
 await main(["outline", "doc.md"]);

@@ -1,6 +1,7 @@
 {
-  "name": "@dz/tools",
+  "name": "@dohzya/tools",
   "version": "0.1.0",
+  "license": "MIT",
   "exports": {
     ".": "./mod.ts",
     "./markdown-surgeon": "./markdown-surgeon/mod.ts",
