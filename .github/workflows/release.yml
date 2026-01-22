@@ -1,0 +1,72 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'md-v*'
+      - 'wl-v*'
+
+jobs:
+  build:
+    name: Build and Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Extract tool and version from tag
+        id: tag
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          TOOL=$(echo $TAG | cut -d'-' -f1)
+          VERSION=$(echo $TAG | cut -d'-' -f2)
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "tool=$TOOL" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building $TOOL version $VERSION"
+
+      - name: Build binaries
+        run: |
+          TOOL=${{ steps.tag.outputs.tool }}
+          VERSION=${{ steps.tag.outputs.version }}
+
+          # Create dist directory
+          mkdir -p dist
+
+          # Determine entry point
+          if [ "$TOOL" = "md" ]; then
+            ENTRY="jsr:@dohzya/tools@${VERSION#v}/markdown-surgeon/cli"
+            PERMS="--allow-read --allow-write"
+          else
+            ENTRY="jsr:@dohzya/tools@${VERSION#v}/worklog/cli"
+            PERMS="--allow-read --allow-write --allow-run=git"
+          fi
+
+          # Compile for each platform
+          deno compile $PERMS --target aarch64-apple-darwin --output dist/${TOOL}-darwin-arm64 $ENTRY
+          deno compile $PERMS --target x86_64-apple-darwin --output dist/${TOOL}-darwin-x86_64 $ENTRY
+          deno compile $PERMS --target aarch64-unknown-linux-gnu --output dist/${TOOL}-linux-arm64 $ENTRY
+          deno compile $PERMS --target x86_64-unknown-linux-gnu --output dist/${TOOL}-linux-x86_64 $ENTRY
+          deno compile $PERMS --target x86_64-pc-windows-msvc --output dist/${TOOL}-windows-x86_64.exe $ENTRY
+
+          # List built files
+          ls -lh dist/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: ${{ steps.tag.outputs.tool }} ${{ steps.tag.outputs.version }}
+          draft: false
+          prerelease: false
+          files: |
+            dist/${{ steps.tag.outputs.tool }}-*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

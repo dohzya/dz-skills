@@ -57,6 +57,63 @@ import { parseDocument } from "@dohzya/tools/markdown-surgeon";
 
 See [packages/tools/README.md](packages/tools/README.md) for API documentation.
 
+## CLI Tools Installation
+
+The `md` (markdown-surgeon) and `wl` (worklog) tools can be installed as standalone CLI tools without cloning this repository.
+
+### Via Homebrew (macOS/Linux)
+
+```bash
+# Add the tap
+brew tap dohzya/dz-tools
+
+# Install individual tools
+brew install md
+brew install wl
+
+# Or both at once
+brew install md wl
+```
+
+### Via mise (using ubi backend)
+
+Add to your `.mise.toml`:
+
+```toml
+[tools]
+"ubi:dohzya/dz-skills" = { exe = "md", matching = "md-*" }
+"ubi:dohzya/dz-skills#wl" = { exe = "wl", matching = "wl-*" }
+```
+
+Then run:
+
+```bash
+mise install
+```
+
+### Via Deno
+
+If you have Deno installed:
+
+```bash
+# Install md
+deno install -g --allow-read --allow-write -n md \
+  jsr:@dohzya/tools/markdown-surgeon/cli
+
+# Install wl
+deno install -g --allow-read --allow-write --allow-run=git -n wl \
+  jsr:@dohzya/tools/worklog/cli
+```
+
+### Manual Installation
+
+Download pre-compiled binaries from [GitHub Releases](https://github.com/dohzya/dz-skills/releases):
+
+1. Find the latest release for your tool (`md-v*` or `wl-v*`)
+2. Download the binary for your platform (e.g., `md-darwin-arm64` for macOS ARM)
+3. Make it executable: `chmod +x md-darwin-arm64`
+4. Move to your PATH: `mv md-darwin-arm64 ~/.local/bin/md`
+
 ## Development
 
 ```bash

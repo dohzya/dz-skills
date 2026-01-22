@@ -1,0 +1,17 @@
+# Example mise configuration for installing dz-skills CLI tools
+#
+# Copy this to your project root or global config:
+#   cp .mise.toml.example .mise.toml
+#   mise install
+
+[tools]
+# Install markdown-surgeon (md) from latest release
+# Uses ubi backend to download pre-compiled binaries
+"ubi:dohzya/dz-skills" = { exe = "md", matching = "md-*" }
+
+# Install worklog (wl) from latest release
+# "ubi:dohzya/dz-skills#wl" = { exe = "wl", matching = "wl-*" }
+
+# To pin to specific version:
+# "ubi:dohzya/dz-skills" = { version = "md-v0.3.0", exe = "md", matching = "md-*" }
+# "ubi:dohzya/dz-skills#wl" = { version = "wl-v0.3.0", exe = "wl", matching = "wl-*" }
