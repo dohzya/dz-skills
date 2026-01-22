@@ -24,9 +24,11 @@ wl checkpoint <id> "changes" "learnings"         # Create checkpoint
 wl done <id> "changes" "learnings"               # Final checkpoint + close task
 wl list [--all]                                  # List active tasks (--all includes done <30d)
 wl summary [--since YYYY-MM-DD]                  # Aggregate all tasks
+wl import [-p PATH | -b BRANCH] [--rm]           # Import from other worktree
 ```
 
-Add `--json` to any command for JSON output.
+Add `--json` to any command for JSON output. Add `--force` (or `-f`) to `trace`
+or `checkpoint` to modify completed tasks.
 
 **Timestamp option for `wl trace`:**
 
@@ -132,6 +134,30 @@ wl done 250116a \
 
 This creates a final checkpoint and marks the task done.
 
+### Modifying completed tasks
+
+By default, completed tasks cannot be modified. To add entries or checkpoints to
+a completed task, use the `--force` flag (or `-f`):
+
+```bash
+# Add post-completion entry
+wl trace 250116a "Found edge case in production" --force
+
+# Create post-completion checkpoint
+wl checkpoint 250116a "Hotfix applied" "Edge case documented" --force
+```
+
+**When to use force:**
+
+- Recording post-deployment issues
+- Adding retrospective findings
+- Documenting production learnings
+- Appending missed context
+
+**Purge protection:** Tasks with uncheckpointed entries (flag
+`has_uncheckpointed_entries: true`) are not auto-purged. Create a checkpoint to
+clear this flag and allow eventual cleanup.
+
 ### Getting overview
 
 ```bash
@@ -142,6 +168,55 @@ wl summary --since 2025-01-10   # Include done tasks since date
 ```
 
 Use `wlsummary` for end-of-worktree recaps.
+
+### Importing from other worktrees
+
+When working across multiple worktrees, import tasks before deleting the
+worktree to preserve work history:
+
+```bash
+# Import by worktree path
+wl import --path /path/to/other-worktree/.worklog
+
+# Import by branch name (auto-resolves worktree path)
+wl import --branch feature-x
+
+# Remove source tasks after successful import
+wl import --branch feature-x --rm
+```
+
+**Import behavior:**
+
+- **Same task (matching UID)**: Merges new entries and checkpoints
+  - Skips duplicate entries (same timestamp)
+  - Warns if entry older than last checkpoint (skipped)
+  - Updates `has_uncheckpointed_entries` if new entries added
+- **Different task (ID collision)**: Renames imported task
+  - Example: `260122a` → `260122c` if `260122a` and `260122b` exist
+- **New task**: Imports as-is
+
+**`--rm` flag:**
+
+- Only removes fully-imported tasks (no errors/warnings)
+- Tasks with skipped entries remain in source
+- If all tasks removed, deletes entire source `.worklog/` directory
+
+**Use case:**
+
+```bash
+# In feature worktree
+cd ~/project-feature-x
+wl add --desc "Implement feature X"
+wl trace 260122a "Working on feature..."
+# ... work ...
+
+# Before deleting worktree, import to main
+cd ~/project
+wl import --branch feature-x --rm
+
+# Now safe to delete feature worktree
+git worktree remove ~/project-feature-x
+```
 
 ## Output formats
 

@@ -4,11 +4,13 @@ export type TaskStatus = "active" | "done";
 
 export interface TaskMeta {
   id: string;
+  uid: string; // UUID for cross-worktree identity
   desc: string;
   status: TaskStatus;
   created: string; // ISO 8601
   done_at: string | null;
   last_checkpoint: string | null; // ISO 8601 timestamp
+  has_uncheckpointed_entries: boolean;
 }
 
 export interface IndexEntry {
@@ -78,14 +80,30 @@ export interface StatusOutput {
   status: string;
 }
 
+export interface ImportTaskResult {
+  id: string;
+  status: "imported" | "merged" | "skipped";
+  warnings?: string[];
+}
+
+export interface ImportOutput {
+  imported: number;
+  merged: number;
+  skipped: number;
+  tasks: ImportTaskResult[];
+}
+
 // Error handling
 export type WtErrorCode =
   | "not_initialized"
   | "already_initialized"
   | "task_not_found"
   | "task_already_done"
+  | "no_uncheckpointed_entries"
   | "invalid_args"
-  | "io_error";
+  | "io_error"
+  | "worktree_not_found"
+  | "import_source_not_found";
 
 export class WtError extends Error {
   constructor(

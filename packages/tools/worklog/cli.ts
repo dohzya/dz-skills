@@ -2,6 +2,8 @@ import {
   type AddOutput,
   type Checkpoint,
   type Entry,
+  type ImportOutput,
+  type ImportTaskResult,
   type Index,
   type ListOutput,
   type LogsOutput,
@@ -260,6 +262,53 @@ async function generateTaskId(): Promise<string> {
 }
 
 // ============================================================================
+// Worktree resolution
+// ============================================================================
+
+async function resolveWorktreePath(branch: string): Promise<string> {
+  const process = new Deno.Command("git", {
+    args: ["worktree", "list", "--porcelain"],
+    stdout: "piped",
+    stderr: "piped",
+  });
+
+  const { code, stdout, stderr } = await process.output();
+
+  if (code !== 0) {
+    const error = new TextDecoder().decode(stderr);
+    throw new WtError(
+      "io_error",
+      `Failed to list worktrees: ${error}`,
+    );
+  }
+
+  const output = new TextDecoder().decode(stdout);
+  const lines = output.trim().split("\n");
+
+  let currentPath: string | null = null;
+  const targetBranch = `refs/heads/${branch}`;
+
+  for (const line of lines) {
+    if (line.startsWith("worktree ")) {
+      currentPath = line.slice(9); // Remove "worktree " prefix
+    } else if (line.startsWith("branch ") && currentPath) {
+      const branchRef = line.slice(7); // Remove "branch " prefix
+      if (branchRef === targetBranch) {
+        return `${currentPath}/.worklog`;
+      }
+    } else if (line === "") {
+      // Empty line separates worktrees
+      currentPath = null;
+    }
+  }
+
+  throw new WtError(
+    "worktree_not_found",
+    `No worktree found for branch: ${branch}`,
+  );
+}
+
+// ============================================================================
 // Task file management
 // ============================================================================
 
@@ -302,6 +351,27 @@ async function purge(): Promise<void> {
   for (const [id, info] of Object.entries(index.tasks)) {
     if (info.status === "done" && info.done_at) {
       if (new Date(info.done_at).getTime() < cutoff) {
+        // Check if task has uncheckpointed entries before purging
+        try {
+          const content = await loadTaskContent(id);
+          const { meta, entries } = await parseTaskFile(content);
+
+          if (meta.has_uncheckpointed_entries) {
+            // Don't purge - has uncheckpointed entries
+            const lastEntry = entries.length > 0
+              ? entries[entries.length - 1].ts
+              : "unknown";
+            console.error(
+              `⚠ Task ${id} not purged: has uncheckpointed entries (last entry: ${lastEntry})`,
+            );
+            continue;
+          }
+        } catch (_e) {
+          // If we can't read the file, skip it (it may already be deleted)
+          continue;
+        }
+
+        // Safe to purge
         await deleteFile(taskFilePath(id));
         delete index.tasks[id];
         modified = true;
@@ -535,6 +605,26 @@ function formatSummary(output: SummaryOutput): string {
   return parts.join("\n\n---\n\n");
 }
 
+function formatImport(output: ImportOutput): string {
+  const lines: string[] = [];
+  lines.push(`imported: ${output.imported}`);
+  lines.push(`merged: ${output.merged}`);
+  lines.push(`skipped: ${output.skipped}`);
+
+  if (output.tasks.length > 0) {
+    lines.push("");
+    for (const task of output.tasks) {
+      let line = `${task.id}: ${task.status}`;
+      if (task.warnings && task.warnings.length > 0) {
+        line += ` (${task.warnings.join(", ")})`;
+      }
+      lines.push(line);
+    }
+  }
+
+  return lines.join("\n");
+}
+
 function formatError(error: WtError): string {
   return `error: ${error.code}\n${error.message}`;
 }
@@ -557,15 +647,18 @@ async function cmdAdd(desc: string): Promise<AddOutput> {
   await purge();
 
   const id = await generateTaskId();
+  const uid = crypto.randomUUID();
   const now = getLocalISOString();
 
   const content = `---
 id: ${id}
+uid: ${uid}
 desc: "${desc.replace(/"/g, '\\"')}"
 status: active
 created: "${now}"
 done_at: null
 last_checkpoint: null
+has_uncheckpointed_entries: false
 ---
 
 # Entries
@@ -591,12 +684,17 @@ async function cmdTrace(
   taskId: string,
   message: string,
   timestamp?: string,
+  force?: boolean,
 ): Promise<TraceOutput> {
   await purge();
 
   const content = await loadTaskContent(taskId);
   const { meta } = await parseTaskFile(content);
-  assertActive(meta);
+
+  // Only check if task is active if not forcing
+  if (!force) {
+    assertActive(meta);
+  }
 
   const doc = await parseDocument(content);
   const entriesId = await getEntriesId();
@@ -643,6 +741,15 @@ async function cmdTrace(
 
   doc.lines.splice(insertLine, 0, ...entryLines);
 
+  // Update frontmatter to mark has_uncheckpointed_entries
+  const yamlContent = getFrontmatterContent(doc);
+  const frontmatter = parseFrontmatter(yamlContent);
+  frontmatter.has_uncheckpointed_entries = true;
+  setFrontmatter(
+    doc,
+    stringifyFrontmatter(frontmatter as Record<string, unknown>),
+  );
+
   await saveTaskContent(taskId, serializeDocument(doc));
 
   // Count entries since last checkpoint
@@ -687,12 +794,42 @@ async function cmdCheckpoint(
   taskId: string,
   changes: string,
   learnings: string,
+  force?: boolean,
 ): Promise<StatusOutput> {
   await purge();
 
   const content = await loadTaskContent(taskId);
-  const { meta } = await parseTaskFile(content);
-  assertActive(meta);
+  const { meta, entries } = await parseTaskFile(content);
+
+  // Only check if task is active if not forcing
+  if (!force) {
+    assertActive(meta);
+  }
+
+  // Check if checkpoint is needed (unless forced)
+  if (!force) {
+    let needsCheckpoint = meta.has_uncheckpointed_entries;
+
+    // Also check timestamps
+    if (!needsCheckpoint && entries.length > 0) {
+      const lastEntryTs = entries[entries.length - 1].ts;
+      if (meta.last_checkpoint) {
+        const lastCheckpointDate = parseDate(meta.last_checkpoint);
+        const lastEntryDate = parseDate(lastEntryTs);
+        needsCheckpoint = lastEntryDate > lastCheckpointDate;
+      } else {
+        // No checkpoint yet but has entries
+        needsCheckpoint = true;
+      }
+    }
+
+    if (!needsCheckpoint) {
+      throw new WtError(
+        "no_uncheckpointed_entries",
+        "No uncheckpointed entries. Use --force to create checkpoint anyway",
+      );
+    }
+  }
 
   const doc = await parseDocument(content);
   const checkpointsId = await getCheckpointsId();
@@ -725,6 +862,7 @@ ${learnings}
   const yamlContent = getFrontmatterContent(doc);
   const frontmatter = parseFrontmatter(yamlContent);
   frontmatter.last_checkpoint = now;
+  frontmatter.has_uncheckpointed_entries = false;
   setFrontmatter(
     doc,
     stringifyFrontmatter(frontmatter as Record<string, unknown>),
@@ -742,8 +880,8 @@ async function cmdDone(
 ): Promise<StatusOutput> {
   await purge();
 
-  // First create the final checkpoint
-  await cmdCheckpoint(taskId, changes, learnings);
+  // First create the final checkpoint (always force since this is the final one)
+  await cmdCheckpoint(taskId, changes, learnings, true);
 
   // Then mark as done
   const content = await loadTaskContent(taskId);
@@ -824,6 +962,291 @@ async function cmdSummary(since: string | null): Promise<SummaryOutput> {
   return { tasks: result };
 }
 
+async function cmdImport(
+  sourcePath: string,
+  removeSource: boolean,
+): Promise<ImportOutput> {
+  await autoInit();
+
+  // Verify source exists
+  const sourceIndexPath = `${sourcePath}/index.json`;
+  if (!(await exists(sourceIndexPath))) {
+    throw new WtError(
+      "import_source_not_found",
+      `Source worklog not found: ${sourcePath}`,
+    );
+  }
+
+  const sourceIndexContent = await Deno.readTextFile(sourceIndexPath);
+  const sourceIndex = JSON.parse(sourceIndexContent) as Index;
+  const destIndex = await loadIndex();
+
+  const results: ImportTaskResult[] = [];
+  let imported = 0;
+  let merged = 0;
+  let skipped = 0;
+  const tasksToRemove: string[] = [];
+
+  for (const [sourceId, sourceInfo] of Object.entries(sourceIndex.tasks)) {
+    const sourceTaskPath = `${sourcePath}/tasks/${sourceId}.md`;
+    let sourceContent = await Deno.readTextFile(sourceTaskPath);
+    const {
+      meta: sourceMeta,
+      entries: sourceEntries,
+      checkpoints: sourceCheckpoints,
+    } = await parseTaskFile(sourceContent);
+
+    // Generate uid if missing (for backward compatibility)
+    if (!sourceMeta.uid) {
+      sourceMeta.uid = crypto.randomUUID();
+      // Update source file with uid
+      const doc = await parseDocument(sourceContent);
+      const yamlContent = getFrontmatterContent(doc);
+      const frontmatter = parseFrontmatter(yamlContent);
+      frontmatter.uid = sourceMeta.uid;
+      setFrontmatter(
+        doc,
+        stringifyFrontmatter(frontmatter as Record<string, unknown>),
+      );
+      const updatedContent = serializeDocument(doc);
+      await Deno.writeTextFile(sourceTaskPath, updatedContent);
+      // Update sourceContent with the new content that includes uid
+      sourceContent = updatedContent;
+    }
+
+    // Check if this task's UID already exists
+    let existingTaskId: string | undefined;
+    for (const id of Object.keys(destIndex.tasks)) {
+      const content = await loadTaskContent(id);
+      const { meta } = await parseTaskFile(content);
+
+      // Generate uid if missing in dest (for backward compatibility)
+      if (!meta.uid) {
+        meta.uid = crypto.randomUUID();
+        // Update dest file with uid
+        const doc = await parseDocument(content);
+        const yamlContent = getFrontmatterContent(doc);
+        const frontmatter = parseFrontmatter(yamlContent);
+        frontmatter.uid = meta.uid;
+        setFrontmatter(
+          doc,
+          stringifyFrontmatter(frontmatter as Record<string, unknown>),
+        );
+        await saveTaskContent(id, serializeDocument(doc));
+      }
+
+      if (meta.uid === sourceMeta.uid) {
+        existingTaskId = id;
+        break;
+      }
+    }
+
+    if (existingTaskId) {
+      // Same task - merge traces
+      const destContent = await loadTaskContent(existingTaskId);
+      const {
+        meta: destMeta,
+        entries: destEntries,
+        checkpoints: destCheckpoints,
+      } = await parseTaskFile(destContent);
+      const warnings: string[] = [];
+
+      // Merge entries
+      const destTimestamps = new Set(destEntries.map((e) => e.ts));
+      const entriesToAdd: Entry[] = [];
+
+      for (const entry of sourceEntries) {
+        if (destTimestamps.has(entry.ts)) {
+          continue; // Already exists
+        }
+
+        // Check if entry is older than last checkpoint
+        if (destMeta.last_checkpoint) {
+          const entryDate = parseDate(entry.ts);
+          const lastCheckpointDate = parseDate(destMeta.last_checkpoint);
+          if (entryDate < lastCheckpointDate) {
+            warnings.push(
+              `Entry at ${entry.ts} is older than last checkpoint, skipped`,
+            );
+            continue;
+          }
+        }
+
+        entriesToAdd.push(entry);
+      }
+
+      // Merge checkpoints (if any new ones)
+      const destCheckpointTimestamps = new Set(
+        destCheckpoints.map((c) => c.ts),
+      );
+      const checkpointsToAdd: Checkpoint[] = [];
+      for (const checkpoint of sourceCheckpoints) {
+        if (!destCheckpointTimestamps.has(checkpoint.ts)) {
+          checkpointsToAdd.push(checkpoint);
+        }
+      }
+
+      if (entriesToAdd.length > 0 || checkpointsToAdd.length > 0) {
+        // Add entries and checkpoints to destination task
+        const doc = await parseDocument(destContent);
+        const entriesId = await getEntriesId();
+        const checkpointsId = await getCheckpointsId();
+
+        if (entriesToAdd.length > 0) {
+          const entriesSection = findSection(doc, entriesId);
+          if (entriesSection) {
+            const entriesEnd = getSectionEndLine(doc, entriesSection, true);
+            for (const entry of entriesToAdd) {
+              const entryText = `\n## ${entry.ts}\n\n${entry.msg}\n`;
+              doc.lines.splice(entriesEnd, 0, ...entryText.split("\n"));
+            }
+          }
+
+          // Set has_uncheckpointed_entries flag
+          const yamlContent = getFrontmatterContent(doc);
+          const frontmatter = parseFrontmatter(yamlContent);
+          frontmatter.has_uncheckpointed_entries = true;
+          setFrontmatter(
+            doc,
+            stringifyFrontmatter(frontmatter as Record<string, unknown>),
+          );
+        }
+
+        if (checkpointsToAdd.length > 0) {
+          const checkpointsSection = findSection(doc, checkpointsId);
+          if (checkpointsSection) {
+            const checkpointsEnd = getSectionEndLine(
+              doc,
+              checkpointsSection,
+              true,
+            );
+            for (const checkpoint of checkpointsToAdd) {
+              const checkpointText =
+                `\n## ${checkpoint.ts}\n\n### Changes\n${checkpoint.changes}\n\n### Learnings\n${checkpoint.learnings}\n`;
+              doc.lines.splice(
+                checkpointsEnd,
+                0,
+                ...checkpointText.split("\n"),
+              );
+            }
+
+            // Update last_checkpoint if newer
+            const yamlContent = getFrontmatterContent(doc);
+            const frontmatter = parseFrontmatter(yamlContent);
+            const newestCheckpoint =
+              [...destCheckpoints, ...checkpointsToAdd].sort((a, b) =>
+                parseDate(b.ts).getTime() - parseDate(a.ts).getTime()
+              )[0];
+            const newestDate = parseDate(newestCheckpoint.ts);
+            frontmatter.last_checkpoint = newestDate.toISOString();
+            setFrontmatter(
+              doc,
+              stringifyFrontmatter(frontmatter as Record<string, unknown>),
+            );
+          }
+        }
+
+        await saveTaskContent(existingTaskId, serializeDocument(doc));
+
+        results.push({
+          id: existingTaskId,
+          status: "merged",
+          warnings: warnings.length > 0 ? warnings : undefined,
+        });
+        merged++;
+
+        if (warnings.length === 0) {
+          tasksToRemove.push(sourceId);
+        }
+      } else {
+        results.push({
+          id: existingTaskId,
+          status: "skipped",
+          warnings: ["No new entries or checkpoints to merge"],
+        });
+        skipped++;
+        tasksToRemove.push(sourceId); // Can remove since nothing to merge
+      }
+    } else {
+      // Different task - check ID collision
+      let targetId = sourceId;
+      if (destIndex.tasks[sourceId]) {
+        // ID collision - generate new ID
+        const prefix = sourceId.slice(0, 6); // YYMMDD
+        const existing = Object.keys(destIndex.tasks)
+          .filter((id) => id.startsWith(prefix))
+          .map((id) => id.slice(6))
+          .sort();
+        const last = existing[existing.length - 1];
+        targetId = `${prefix}${incrementLetter(last)}`;
+      }
+
+      // Import task with (possibly renamed) ID
+      let taskContent = sourceContent;
+      if (targetId !== sourceId) {
+        // Update ID in frontmatter
+        const doc = await parseDocument(sourceContent);
+        const yamlContent = getFrontmatterContent(doc);
+        const frontmatter = parseFrontmatter(yamlContent);
+        frontmatter.id = targetId;
+        setFrontmatter(
+          doc,
+          stringifyFrontmatter(frontmatter as Record<string, unknown>),
+        );
+        taskContent = serializeDocument(doc);
+      }
+
+      await saveTaskContent(targetId, taskContent);
+
+      destIndex.tasks[targetId] = {
+        desc: sourceInfo.desc,
+        status: sourceInfo.status,
+        created: sourceInfo.created,
+        done_at: sourceInfo.done_at,
+      };
+
+      results.push({
+        id: targetId,
+        status: "imported",
+        warnings: targetId !== sourceId
+          ? [`Renamed from ${sourceId} to ${targetId}`]
+          : undefined,
+      });
+      imported++;
+      tasksToRemove.push(sourceId);
+    }
+  }
+
+  await saveIndex(destIndex);
+
+  // Remove source tasks if requested and fully imported
+  if (removeSource && tasksToRemove.length > 0) {
+    for (const taskId of tasksToRemove) {
+      const taskPath = `${sourcePath}/tasks/${taskId}.md`;
+      await Deno.remove(taskPath);
+      delete sourceIndex.tasks[taskId];
+    }
+
+    // Update source index
+    await Deno.writeTextFile(
+      sourceIndexPath,
+      JSON.stringify(sourceIndex, null, 2),
+    );
+
+    // If no tasks left, remove the whole .worklog directory
+    if (Object.keys(sourceIndex.tasks).length === 0) {
+      await Deno.remove(sourcePath, { recursive: true });
+    }
+  }
+
+  return {
+    imported,
+    merged,
+    skipped,
+    tasks: results,
+  };
+}
+
 // ============================================================================
 // CLI
 // ============================================================================
@@ -836,14 +1259,19 @@ Commands:
   add [--desc "description"]            Create a new task
   trace <task-id> <message> [options]   Log an entry to a task
   logs <task-id>                        Get task context for checkpoint
-  checkpoint <task-id> <changes> <learnings>   Create a checkpoint
+  checkpoint <task-id> <changes> <learnings> [options]   Create a checkpoint
   done <task-id> <changes> <learnings>         Complete task with final checkpoint
   list [--all]                          List tasks (--all includes completed)
   summary [--since YYYY-MM-DD]          Aggregate all tasks
+  import [-p PATH | -b BRANCH] [--rm]   Import tasks from another worktree
 
 Options:
   --json                                Output in JSON format
-  --timestamp, -t [DATE]THH:mm[:SS][TZ] Flexible timestamp (T11:15, 2024-12-15T11:15, etc.)`);
+  --timestamp, -t [DATE]THH:mm[:SS][TZ] Flexible timestamp (T11:15, 2024-12-15T11:15, etc.)
+  --force, -f                           Force trace/checkpoint on completed tasks
+  --path, -p PATH                       Path to source .worklog directory
+  --branch, -b BRANCH                   Resolve worktree path from branch name
+  --rm                                  Remove imported tasks from source`);
 }
 
 function parseArgs(args: string[]): {
@@ -853,7 +1281,11 @@ function parseArgs(args: string[]): {
     all: boolean;
     since: string | null;
     timestamp: string | null;
+    force: boolean;
     json: boolean;
+    path: string | null;
+    branch: string | null;
+    rm: boolean;
   };
   positional: string[];
 } {
@@ -862,7 +1294,11 @@ function parseArgs(args: string[]): {
     all: false,
     since: null as string | null,
     timestamp: null as string | null,
+    force: false,
     json: false,
+    path: null as string | null,
+    branch: null as string | null,
+    rm: false,
   };
   const positional: string[] = [];
   let command = "";
@@ -883,6 +1319,18 @@ function parseArgs(args: string[]): {
       flags.timestamp = args[++i];
     } else if (arg.startsWith("--timestamp=")) {
       flags.timestamp = arg.slice(12);
+    } else if (arg === "--force" || arg === "-f") {
+      flags.force = true;
+    } else if ((arg === "--path" || arg === "-p") && i + 1 < args.length) {
+      flags.path = args[++i];
+    } else if (arg.startsWith("--path=")) {
+      flags.path = arg.slice(7);
+    } else if ((arg === "--branch" || arg === "-b") && i + 1 < args.length) {
+      flags.branch = args[++i];
+    } else if (arg.startsWith("--branch=")) {
+      flags.branch = arg.slice(9);
+    } else if (arg === "--rm") {
+      flags.rm = true;
     } else if (arg === "--json" || arg === "--format=json") {
       flags.json = true;
     } else if (!command) {
@@ -943,6 +1391,7 @@ export async function main(args: string[]): Promise<void> {
           positional[0],
           positional[1],
           timestampValue,
+          flags.force,
         );
         console.log(flags.json ? JSON.stringify(output) : formatTrace(output));
         break;
@@ -968,6 +1417,7 @@ export async function main(args: string[]): Promise<void> {
           positional[0],
           positional[1],
           positional[2],
+          flags.force,
         );
         console.log(flags.json ? JSON.stringify(output) : formatStatus(output));
         break;
@@ -1000,6 +1450,34 @@ export async function main(args: string[]): Promise<void> {
         console.log(
           flags.json ? JSON.stringify(output) : formatSummary(output),
         );
+        break;
+      }
+
+      case "import": {
+        let sourcePath: string;
+
+        if (flags.path && flags.branch) {
+          throw new WtError(
+            "invalid_args",
+            "Cannot specify both --path and --branch",
+          );
+        }
+
+        if (!flags.path && !flags.branch) {
+          throw new WtError(
+            "invalid_args",
+            "Must specify either --path or --branch",
+          );
+        }
+
+        if (flags.branch) {
+          sourcePath = await resolveWorktreePath(flags.branch);
+        } else {
+          sourcePath = flags.path!;
+        }
+
+        const output = await cmdImport(sourcePath, flags.rm);
+        console.log(flags.json ? JSON.stringify(output) : formatImport(output));
         break;
       }
 
