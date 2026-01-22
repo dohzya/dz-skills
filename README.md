@@ -4,10 +4,26 @@ A collection of Claude Code skills for markdown manipulation and productivity.
 
 ## Installation
 
-Add this plugin to Claude Code:
+### For Claude Code Skills
+
+Add the marketplace and install the plugin:
 
 ```bash
-claude mcp add-skill https://github.com/dohzya/dz-skills
+# Add the marketplace
+claude plugin marketplace add https://github.com/dohzya/dz-skills
+
+# Install the plugin
+claude plugin install dz-skills
+```
+
+Or manually:
+
+```bash
+# Clone the repository
+git clone https://github.com/dohzya/dz-skills.git ~/.local/share/claude/plugins/dz-skills
+
+# Enable the plugin
+claude plugin enable dz-skills
 ```
 
 ## Skills
