@@ -6,25 +6,7 @@ A collection of CLI tools and Claude Code skills for markdown manipulation and p
 
 ### For Claude Code Skills
 
-Add the marketplace and install the plugin:
-
-```bash
-# Add the marketplace
-claude plugin marketplace add https://github.com/dohzya/tools
-
-# Install the plugin
-claude plugin install tools
-```
-
-Or manually:
-
-```bash
-# Clone the repository
-git clone https://github.com/dohzya/tools.git ~/.local/share/claude/plugins/tools
-
-# Enable the plugin
-claude plugin enable tools
-```
+See [CLAUDE_SETUP.md](CLAUDE_SETUP.md) for detailed installation instructions.
 
 ## Skills
 
