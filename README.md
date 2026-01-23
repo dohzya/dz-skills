@@ -2,125 +2,142 @@
 
 A collection of CLI tools and Claude Code skills for markdown manipulation and productivity.
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![JSR](https://jsr.io/badges/@dohzya/tools)](https://jsr.io/@dohzya/tools)
+
+**Quick Links:** [Claude Code Setup](CLAUDE_SETUP.md) · [CLI Tools Setup](CLI_SETUP.md) · [Library API](packages/tools/README.md)
+
+## What's in this repo?
+
+This repository provides three ways to use the tools:
+
+1. **Claude Code Skills** - AI-powered workflows in Claude Code
+2. **CLI Tools** - Standalone command-line tools (`md`, `wl`)
+3. **TypeScript Library** - Importable package from JSR
+
 ## Installation
 
-### For Claude Code Skills
+Choose your preferred method:
 
-See [CLAUDE_SETUP.md](CLAUDE_SETUP.md) for detailed installation instructions.
+| Method | Command | Best For |
+|--------|---------|----------|
+| **Claude Code** | See [CLAUDE_SETUP.md](CLAUDE_SETUP.md) | AI-assisted workflows |
+| **Homebrew** | `brew tap dohzya/tools && brew install md wl` | macOS/Linux users |
+| **mise** | `mise use -g github:dohzya/tools@md-v0.4.0` | Project-based installs |
+| **Deno** | `deno install -g jsr:@dohzya/tools/markdown-surgeon/cli` | Deno users |
+| **Library** | `deno add @dohzya/tools` | TypeScript projects |
 
-## Skills
+See [CLI_SETUP.md](CLI_SETUP.md) for detailed CLI installation options.
+
+## Available Tools & Skills
+
+| Name | Description | Available As |
+|------|-------------|--------------|
+| **markdown-surgeon** | Surgically edit Markdown files by section without loading entire content | Skill · CLI (`md`) · Library |
+| **worklog** | Track work progress with append-only logs and on-demand checkpoints | Skill · CLI (`wl`) · Library |
+| **obsidian-journal** | Create journal entries in Obsidian for later reference | Skill only |
+| **rex-session** | Generate structured REX (Post-Mortem) from technical conversations | Skill only |
 
 ### markdown-surgeon
 
-Manipulate Markdown files surgically by section without loading entire content.
-Useful for:
+Manipulate large Markdown files efficiently:
 
-- Editing large .md files
-- Updating specific sections
+```bash
+# CLI
+md outline document.md
+md read document.md "Section Title"
+md write document.md "Section" "Content"
+```
+
+```typescript
+// Library
+import { parseDocument } from "@dohzya/tools/markdown-surgeon";
+const doc = parseDocument(markdown);
+```
+
+**Use cases:**
+- Editing large .md files (READMEs, documentation)
+- Updating specific sections without full file rewrites
 - Using Markdown as a lightweight database
 
-Commands: `outline`, `read`, `write`, `append`, `empty`, `remove`, `search`,
-`concat`, `meta`, `create`
-
-### obsidian-journal
-
-Create journal entries in Obsidian. Use when storing, saving, or recording
-information for later reference.
-
-### rex-session
-
-Generate structured REX (Retour d'EXpérience / Post-Mortem) from technical
-conversations.
+**Commands:** `outline`, `read`, `write`, `append`, `empty`, `remove`, `search`, `concat`, `meta`, `create`
 
 ### worklog
 
-Track work progress with append-only worklog and on-demand checkpoints.
-Activates when `.worklog/` exists or user says "track this".
+Track your work progress with structured logging:
 
-Commands: `wl init`, `wl add`, `wl trace`, `wl logs`, `wl checkpoint`,
-`wl done`, `wl list`, `wl summary`
+```bash
+# CLI
+wl init
+wl add "Implemented feature X"
+wl checkpoint "v1.0 feature complete"
+wl logs
+```
 
-## Library
+**Use cases:**
+- Logging work progress during development
+- Creating checkpoints at milestones
+- Generating summaries for reports or PRs
+
+**Commands:** `init`, `add`, `trace`, `logs`, `checkpoint`, `done`, `list`, `summary`
+
+**Activates automatically** in Claude Code when `.worklog/` exists or user says "track this".
+
+### obsidian-journal
+
+Claude Code skill for creating timestamped journal entries in Obsidian.
+
+**Use when:** storing, saving, or recording information for later reference.
+
+### rex-session
+
+Claude Code skill for generating structured REX (Retour d'EXpérience / Post-Mortem) documents from technical conversations.
+
+**Use when:** documenting incidents, project retrospectives, or technical decisions.
+
+## Library Usage
 
 The core functionality is available as a JSR package:
 
 ```typescript
 import { parseDocument } from "@dohzya/tools/markdown-surgeon";
+
+const markdown = `# Title\n## Section 1\nContent`;
+const doc = parseDocument(markdown);
+console.log(doc.sections);
 ```
 
-See [packages/tools/README.md](packages/tools/README.md) for API documentation.
-
-## CLI Tools Installation
-
-The `md` (markdown-surgeon) and `wl` (worklog) tools can be installed as
-standalone CLI tools without cloning this repository.
-
-### Via Homebrew (macOS/Linux)
-
-```bash
-# Add the tap
-brew tap dohzya/tools
-
-# Install individual tools
-brew install md
-brew install wl
-
-# Or both at once
-brew install md wl
-```
-
-### Via mise (using github backend)
-
-Install directly:
-
-```bash
-mise use -g github:dohzya/tools@md-v0.4.0
-mise use -g github:dohzya/tools@wl-v0.4.0
-```
-
-Or add to your `.mise.toml`:
-
-```toml
-[tools]
-"github:dohzya/tools@md-v0.4.0" = "latest"
-"github:dohzya/tools@wl-v0.4.0" = "latest"
-```
-
-Then run `mise install`.
-
-### Via Deno
-
-If you have Deno installed:
-
-```bash
-# Install md
-deno install -g --allow-read --allow-write -n md \
-  jsr:@dohzya/tools/markdown-surgeon/cli
-
-# Install wl
-deno install -g --allow-read --allow-write --allow-run=git -n wl \
-  jsr:@dohzya/tools/worklog/cli
-```
-
-### Manual Installation
-
-Download pre-compiled binaries from
-[GitHub Releases](https://github.com/dohzya/tools/releases):
-
-1. Find the latest release for your tool (`md-v*` or `wl-v*`)
-2. Download the binary for your platform (e.g., `md-darwin-arm64` for macOS ARM)
-3. Make it executable: `chmod +x md-darwin-arm64`
-4. Move to your PATH: `mv md-darwin-arm64 ~/.local/bin/md`
+See [packages/tools/README.md](packages/tools/README.md) for complete API documentation.
 
 ## Development
 
 ```bash
-# Check types
-deno task check
+# Install dependencies
+deno install
 
 # Run tests
 deno task test
+
+# Type check
+deno task check
+
+# Format code
+deno task fmt
+
+# Run all checks
+deno task validate
 ```
+
+See [AGENTS.md](AGENTS.md) for AI agent guidelines when contributing.
+
+## Documentation
+
+- [CLAUDE_SETUP.md](CLAUDE_SETUP.md) - Claude Code plugin installation
+- [CLI_SETUP.md](CLI_SETUP.md) - CLI tools installation (Homebrew, mise, Deno)
+- [HOMEBREW_SETUP.md](HOMEBREW_SETUP.md) - Detailed Homebrew usage
+- [MISE_SETUP.md](MISE_SETUP.md) - Detailed mise configuration
+- [RELEASE.md](RELEASE.md) - Release process for maintainers
+- [packages/tools/README.md](packages/tools/README.md) - TypeScript library API
 
 ## License
 
