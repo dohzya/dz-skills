@@ -13,21 +13,10 @@ This will:
 **Available commands:**
 
 ```bash
-mise run test   # Run tests
-mise run check  # Type check
-mise run fmt    # Format code
-mise run lint   # Lint code
-mise run ci     # Run all checks (what CI runs)
-```
-
-Or use Deno directly:
-
-```bash
-deno task validate  # Run all checks (fmt + check + lint + test)
-deno task test      # Run tests only
-deno fmt            # Format code
-deno lint           # Lint code
-deno check          # Type check
+task fmt       # Format code
+task test      # Run tests only
+task check     # Check code (format + type + lint)
+task validate  # Run all checks (fmt + check + lint + test)
 ```
 
 ## Pre-commit Checks
@@ -35,11 +24,20 @@ deno check          # Type check
 **CRITICAL:** Before saying you're done with any code changes, ALWAYS run:
 
 ```bash
-deno task validate  # Runs fmt + check + lint + test
+task validate  # Runs fmt + check + lint + test
 ```
 
 **Do not skip this step** - if any check fails, fix the issues before
 committing. These checks are enforced by CI.
+
+## Creating Releases
+
+When it's time to create a new release, refer to [RELEASE.md](RELEASE.md) for the complete release process, including:
+
+- Automated scripts (`task bump`, `task build`, `task update-tap`)
+- Manual step-by-step instructions
+- Critical order of operations (JSR publish BEFORE building binaries!)
+- Common pitfalls and troubleshooting
 
 ## CHANGELOG.md
 
@@ -53,11 +51,9 @@ You can and should maintain `packages/tools/CHANGELOG.md` when making changes.
 2. **ONLY add new entries** at the top
    - Add a new `## [X.Y.Z]` section for the new version
    - Document what changed in this release
-3. When bumping version:
-   - Update `packages/tools/deno.json`
-   - Update `.claude-plugin/marketplace.json`
-   - Update `plugins/tools/.claude-plugin/plugin.json`
-   - Update CLI wrappers (`md`, `wl`, etc.)
+3. When bumping version, use the automation script:
+   - Run `task bump TOOL=wl VERSION=X.Y.Z` (updates all files)
+   - Or follow manual checklist in [RELEASE.md](RELEASE.md)
    - Add new CHANGELOG entry
 
 ## .worklog/

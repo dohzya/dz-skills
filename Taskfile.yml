@@ -1,0 +1,78 @@
+version: "3"
+
+tasks:
+  fmt:
+    desc: "Format the code"
+    dir: packages/tools
+    cmds:
+      - deno fmt
+
+  test:
+    desc: "Run all tests"
+    dir: packages/tools
+    cmds:
+      - deno test --allow-read --allow-write --allow-env
+
+  check:
+    desc: "Check the code (format & type & lint)"
+    dir: packages/tools
+    cmds:
+      - deno fmt --check
+      - deno check mod.ts
+      - deno lint
+
+  validate:
+    desc: "Run all checks (fmt, lint, check, test)"
+    dir: packages/tools
+    cmds:
+      - deno fmt
+      - deno lint
+      - deno check mod.ts
+      - deno test --allow-read --allow-write --allow-env
+
+  publish:
+    desc: "Publish package to JSR"
+    dir: packages/tools
+    cmds:
+      - deno publish
+
+  build:
+    desc: "Build binaries for all platforms (usage: task build VERSION=0.4.3)"
+    cmds:
+      - bash scripts/build.sh {{.VERSION}}
+    requires:
+      vars: [VERSION]
+
+  bump:
+    desc: "Bump version (usage: task bump TOOL=wl VERSION=0.4.3)"
+    cmds:
+      - bash scripts/bump-version.sh {{.TOOL}} {{.VERSION}}
+    requires:
+      vars: [TOOL, VERSION]
+
+  update-tap:
+    desc: "Update homebrew tap (usage: task update-tap TOOL=wl VERSION=0.4.3)"
+    cmds:
+      - bash scripts/update-homebrew-tap.sh {{.TOOL}} {{.VERSION}}
+    requires:
+      vars: [TOOL, VERSION]
+
+  release:
+    desc: "Full release process (usage: task release TOOL=wl VERSION=0.4.3)"
+    requires:
+      vars: [TOOL, VERSION]
+    cmds:
+      - echo "🚀 Starting release process for {{.TOOL}} v{{.VERSION}}"
+      - task: bump
+        vars:
+          TOOL: "{{.TOOL}}"
+          VERSION: "{{.VERSION}}"
+      - echo "📝 Review changes with git diff"
+      - echo "✅ If changes look good, run:"
+      - |
+          echo "   git add -A && git commit -m 'chore({{.TOOL}}): bump to v{{.VERSION}}'"
+      - echo "   cd packages/tools && deno publish && cd ../.."
+      - echo "   task build VERSION={{.VERSION}}"
+      - echo "   ./dist/{{.TOOL}}-darwin-arm64 --version"
+      - echo "   git push origin main && git tag {{.TOOL}}-v{{.VERSION}} && git push origin {{.TOOL}}-v{{.VERSION}}"
+      - echo "   task update-tap TOOL={{.TOOL}} VERSION={{.VERSION}}"

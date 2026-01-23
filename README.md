@@ -112,20 +112,17 @@ See [packages/tools/README.md](packages/tools/README.md) for complete API docume
 ## Development
 
 ```bash
-# Install dependencies
-deno install
-
 # Run tests
-deno task test
+task test
 
-# Type check
-deno task check
+# Check code (format + type + lint)
+task check
 
 # Format code
-deno task fmt
+task fmt
 
 # Run all checks
-deno task validate
+task validate
 ```
 
 See [AGENTS.md](AGENTS.md) for AI agent guidelines when contributing.

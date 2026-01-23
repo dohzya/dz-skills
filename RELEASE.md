@@ -5,7 +5,7 @@ This document describes how to create new releases for `md` and `wl` CLI tools.
 ## Prerequisites
 
 1. Code is tested and ready for release
-2. All tests pass: `cd packages/tools && deno task test`
+2. All tests pass: `task test`
 3. You have JSR publish access
 
 ## Quick Release (Using Scripts)
@@ -14,7 +14,7 @@ The fastest way to create a release is using the provided automation scripts:
 
 ```bash
 # 1. Bump version in all files
-./bump-version.sh wl 0.4.3
+task bump TOOL=wl VERSION=0.4.3
 
 # 2. Review changes
 git diff
@@ -29,7 +29,7 @@ deno publish
 cd ../..
 
 # 5. Build binaries (will download from JSR)
-./build.sh 0.4.3
+task build VERSION=0.4.3
 
 # 6. Test binary version
 ./dist/wl-darwin-arm64 --version  # Should output: 0.4.3
@@ -43,7 +43,7 @@ git push origin wl-v0.4.3
 #    Watch: https://github.com/dohzya/tools/actions
 
 # 9. Update homebrew tap (downloads binaries and calculates checksums)
-./update-homebrew-tap.sh wl 0.4.3
+task update-tap TOOL=wl VERSION=0.4.3
 ```
 
 Done! Users can now `brew update && brew upgrade wl`.
@@ -54,7 +54,7 @@ If you need to do it manually, follow these steps carefully.
 
 ### Step 1: Version Bump
 
-Update version in ALL of these files (or use `./bump-version.sh`):
+Update version in ALL of these files (or use `./scripts/bump-version.sh`):
 
 For `wl`:
 - [ ] `packages/tools/deno.json` - version field
@@ -109,7 +109,7 @@ If this fails:
 Now that JSR has the new version, build binaries:
 
 ```bash
-./build.sh 0.4.3
+task build VERSION=0.4.3
 ```
 
 This will:
@@ -168,7 +168,7 @@ Monitor: https://github.com/dohzya/tools/actions
 After GitHub Actions completes:
 
 ```bash
-./update-homebrew-tap.sh wl 0.4.3
+task update-tap TOOL=wl VERSION=0.4.3
 ```
 
 Or manually:
@@ -245,7 +245,7 @@ Users will get a checksum mismatch error when installing.
 
 Users won't see the new version when running `brew upgrade`.
 
-**Fix:** Run `./update-homebrew-tap.sh` or manually copy the formula and push.
+**Fix:** Run `./scripts/update-homebrew-tap.sh` or manually copy the formula and push.
 
 ## Troubleshooting
 
@@ -274,7 +274,7 @@ Always test locally before creating a release:
 
 ```bash
 # 1. Build locally
-./build.sh 0.4.3
+task build VERSION=0.4.3
 
 # 2. Test the binary
 ./dist/wl-darwin-arm64 --version
