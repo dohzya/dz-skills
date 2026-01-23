@@ -29,6 +29,12 @@ import {
 import { expandMagic } from "./magic.ts";
 
 // ============================================================================
+// Version
+// ============================================================================
+
+const VERSION = "0.4.0";
+
+// ============================================================================
 // Output formatters (text)
 // ============================================================================
 
@@ -857,6 +863,12 @@ function parseArgs(args: string[]): {
 }
 
 export async function main(args: string[]): Promise<void> {
+  // Handle version flag
+  if (args.length === 1 && (args[0] === "-v" || args[0] === "--version")) {
+    console.log(VERSION);
+    Deno.exit(0);
+  }
+
   if (args.length === 0) {
     printUsage();
     Deno.exit(0);
