@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🚀 Setting up dz-skills development environment..."
+echo "🚀 Setting up @dohzya/tools development environment..."
 
 # Install mise if not already installed
 if ! command -v mise &> /dev/null; then

@@ -1,116 +1,173 @@
-# Homebrew Tap Setup Guide
+# Installing md and wl via Homebrew
 
-This guide explains how to create and publish the Homebrew tap for `md` and `wl`.
+This guide explains how to install the `md` (markdown-surgeon) and `wl`
+(worklog) CLI tools using Homebrew.
 
 ## Prerequisites
 
-- GitHub account with access to create repos under `dohzya`
-- Homebrew installed (for testing)
-
-## Step 1: Create the Tap Repository
-
-1. Go to https://github.com/new
-2. Repository name: `homebrew-dz-tools`
-3. Description: "Homebrew formulas for dz-skills CLI tools (md, wl)"
-4. Public repository
-5. Click "Create repository"
-
-## Step 2: Initialize and Push Formulas
-
-```bash
-# Clone the new empty repo
-git clone https://github.com/dohzya/homebrew-dz-tools.git
-cd homebrew-dz-tools
-
-# Create Formula directory
-mkdir -p Formula
-
-# Copy formulas from dz-skills
-cp /path/to/dz-skills/homebrew/Formula/*.rb Formula/
-
-# Add and commit
-git add Formula/
-git commit -m "Initial commit: add md and wl formulas for v0.4.0"
-
-# Push to GitHub
-git push origin main
-```
-
-## Step 3: Test Installation
-
-Once the tap is published, test it:
-
-```bash
-# Add the tap
-brew tap dohzya/dz-tools
-
-# Install md
-brew install dohzya/dz-tools/md
-
-# Test it works
-md --help
-
-# Install wl
-brew install dohzya/dz-tools/wl
-
-# Test it works
-wl --help
-```
-
-## Step 4: Update README
-
-Add installation instructions to the tap's README.md:
-
-```markdown
-# Homebrew Tap for dz-skills
-
-Homebrew formulas for `md` (markdown-surgeon) and `wl` (worklog) CLI tools.
+- Homebrew installed ([brew.sh](https://brew.sh))
+- macOS or Linux
 
 ## Installation
 
+### Quick Start
+
 ```bash
-brew tap dohzya/dz-tools
+# Add the tap
+brew tap dohzya/tools
+
+# Install both tools
+brew install md wl
+```
+
+### Install Individual Tools
+
+```bash
+# Install only markdown-surgeon
 brew install md
+
+# Or install only worklog
 brew install wl
 ```
 
-## Tools
+## Verification
 
-- **md** - Markdown surgeon for surgical file manipulation
-- **wl** - Worklog for tracking development progress
+Check that the tools are installed correctly:
 
-See the [main repository](https://github.com/dohzya/dz-skills) for documentation.
+```bash
+# Check md
+md --help
+
+# Check wl
+wl --help
 ```
 
-## Future Updates
+## Usage
 
-When releasing new versions:
+### Markdown Surgeon (md)
 
-1. Update version and URLs in formulas
-2. Download new binaries from GitHub releases
-3. Calculate new SHA256 checksums: `shasum -a 256 <binary>`
-4. Update SHA256 values in formulas
-5. Commit and push to tap repository
+Manipulate Markdown files surgically by section:
+
+```bash
+# List sections in a file
+md outline README.md
+
+# Read a specific section
+md read README.md installation
+
+# Update a section
+md write README.md installation "New installation instructions"
+```
+
+See the [main repository](https://github.com/dohzya/tools) for complete
+documentation.
+
+### Worklog (wl)
+
+Track work progress during development sessions:
+
+```bash
+# Initialize worklog in current directory
+wl init
+
+# Add a new task
+wl add --desc "Implement new feature"
+
+# List active tasks
+wl list
+
+# Trace work on a task
+wl trace <task-id> "Progress update"
+
+# Create checkpoint
+wl checkpoint <task-id> "Changes made" "Things learned"
+
+# Complete task
+wl done <task-id> "Changes" "Learnings"
+```
+
+See the [worklog skill documentation](https://github.com/dohzya/tools/tree/main/plugins/dz-skills/skills/worklog)
+for complete usage.
+
+## Updating
+
+Keep the tools up to date:
+
+```bash
+# Update tap
+brew update
+
+# Upgrade tools
+brew upgrade md wl
+```
+
+Or upgrade all Homebrew packages:
+
+```bash
+brew upgrade
+```
+
+## Uninstalling
+
+Remove the tools:
+
+```bash
+# Uninstall tools
+brew uninstall md wl
+
+# Optionally, remove the tap
+brew untap dohzya/tools
+```
 
 ## Troubleshooting
 
-### Formula fails to install
+### Command not found after installation
 
-Check SHA256 checksums match the actual binaries:
-```bash
-curl -LO https://github.com/dohzya/dz-skills/releases/download/md-v0.4.0/md-darwin-arm64
-shasum -a 256 md-darwin-arm64
-```
-
-### Testing formula locally
+Make sure Homebrew's bin directory is in your PATH:
 
 ```bash
-# Audit formula
-brew audit --strict Formula/md.rb
+# Check your PATH
+echo $PATH
 
-# Test installation
-brew install --build-from-source Formula/md.rb
-
-# Run tests
-brew test md
+# Add to PATH if needed (add to ~/.zshrc or ~/.bashrc)
+export PATH="/opt/homebrew/bin:$PATH"  # Apple Silicon
+# or
+export PATH="/usr/local/bin:$PATH"     # Intel Mac
 ```
+
+### SHA256 checksum mismatch
+
+The downloaded binary doesn't match the expected checksum. Try:
+
+```bash
+# Clear Homebrew cache
+brew cleanup md wl
+
+# Reinstall
+brew reinstall md wl
+```
+
+### Permission denied when running commands
+
+Make sure the binaries are executable:
+
+```bash
+chmod +x $(which md)
+chmod +x $(which wl)
+```
+
+## Alternative Installation Methods
+
+If Homebrew doesn't work for you, see the [main
+README](https://github.com/dohzya/tools#cli-tools-installation) for other
+installation options:
+
+- mise (with github backend)
+- Deno install
+- Manual download from GitHub Releases
+
+## Getting Help
+
+- Report issues: <https://github.com/dohzya/tools/issues>
+- View source: <https://github.com/dohzya/tools>
+- Package: <https://jsr.io/@dohzya/tools>

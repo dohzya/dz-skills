@@ -1,4 +1,4 @@
-# Homebrew Tap for dz-skills
+# Homebrew Tap for tools
 
 This directory contains Homebrew formulas for distributing `md` and `wl` CLI
 tools.
@@ -20,7 +20,7 @@ cd homebrew-dz-tools
 Copy the formulas from this directory:
 
 ```bash
-cp /path/to/dz-skills/homebrew/Formula/*.rb Formula/
+cp /path/to/tools/homebrew/Formula/*.rb Formula/
 git add Formula/
 git commit -m "Add md and wl formulas"
 git push origin main
@@ -33,7 +33,7 @@ formula:
 
 ```bash
 # Download binaries from GitHub release
-curl -LO https://github.com/dohzya/dz-skills/releases/download/md-v0.3.0/md-darwin-arm64
+curl -LO https://github.com/dohzya/tools/releases/download/md-v0.3.0/md-darwin-arm64
 
 # Calculate SHA256
 shasum -a 256 md-darwin-arm64

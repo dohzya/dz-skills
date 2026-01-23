@@ -7,8 +7,8 @@
 [tools]
 # Install markdown-surgeon (md) and worklog (wl) from GitHub releases
 # Uses github backend to download pre-compiled binaries
-"github:dohzya/dz-skills" = "md-v0.4.0"
-"github:dohzya/dz-skills" = "wl-v0.4.0"
+"github:dohzya/tools" = "md-v0.4.0"
+"github:dohzya/tools" = "wl-v0.4.0"
 
 # Note: mise will automatically detect and download the correct binary
 # for your platform (darwin-arm64, linux-x86_64, etc.)

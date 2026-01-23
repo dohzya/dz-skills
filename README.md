@@ -1,6 +1,6 @@
-# dz-skills
+# @dohzya/tools
 
-A collection of Claude Code skills for markdown manipulation and productivity.
+A collection of CLI tools and Claude Code skills for markdown manipulation and productivity.
 
 ## Installation
 
@@ -10,20 +10,20 @@ Add the marketplace and install the plugin:
 
 ```bash
 # Add the marketplace
-claude plugin marketplace add https://github.com/dohzya/dz-skills
+claude plugin marketplace add https://github.com/dohzya/tools
 
 # Install the plugin
-claude plugin install dz-skills
+claude plugin install tools
 ```
 
 Or manually:
 
 ```bash
 # Clone the repository
-git clone https://github.com/dohzya/dz-skills.git ~/.local/share/claude/plugins/dz-skills
+git clone https://github.com/dohzya/tools.git ~/.local/share/claude/plugins/tools
 
 # Enable the plugin
-claude plugin enable dz-skills
+claude plugin enable tools
 ```
 
 ## Skills
@@ -82,7 +82,7 @@ standalone CLI tools without cloning this repository.
 
 ```bash
 # Add the tap
-brew tap dohzya/dz-tools
+brew tap dohzya/tools
 
 # Install individual tools
 brew install md
@@ -97,16 +97,16 @@ brew install md wl
 Install directly:
 
 ```bash
-mise use -g github:dohzya/dz-skills@md-v0.4.0
-mise use -g github:dohzya/dz-skills@wl-v0.4.0
+mise use -g github:dohzya/tools@md-v0.4.0
+mise use -g github:dohzya/tools@wl-v0.4.0
 ```
 
 Or add to your `.mise.toml`:
 
 ```toml
 [tools]
-"github:dohzya/dz-skills@md-v0.4.0" = "latest"
-"github:dohzya/dz-skills@wl-v0.4.0" = "latest"
+"github:dohzya/tools@md-v0.4.0" = "latest"
+"github:dohzya/tools@wl-v0.4.0" = "latest"
 ```
 
 Then run `mise install`.
@@ -128,7 +128,7 @@ deno install -g --allow-read --allow-write --allow-run=git -n wl \
 ### Manual Installation
 
 Download pre-compiled binaries from
-[GitHub Releases](https://github.com/dohzya/dz-skills/releases):
+[GitHub Releases](https://github.com/dohzya/tools/releases):
 
 1. Find the latest release for your tool (`md-v*` or `wl-v*`)
 2. Download the binary for your platform (e.g., `md-darwin-arm64` for macOS ARM)

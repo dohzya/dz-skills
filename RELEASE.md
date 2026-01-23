@@ -49,7 +49,7 @@ After the release is created:
 
 ```bash
 # For each platform binary
-curl -LO https://github.com/dohzya/dz-skills/releases/download/md-v0.3.0/md-darwin-arm64
+curl -LO https://github.com/dohzya/tools/releases/download/md-v0.3.0/md-darwin-arm64
 shasum -a 256 md-darwin-arm64
 ```
 

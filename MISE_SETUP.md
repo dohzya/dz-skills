@@ -21,10 +21,10 @@ Install directly with version tag:
 
 ```bash
 # Install md (markdown-surgeon)
-mise use -g github:dohzya/dz-skills@md-v0.4.0
+mise use -g github:dohzya/tools@md-v0.4.0
 
 # Install wl (worklog)
-mise use -g github:dohzya/dz-skills@wl-v0.4.0
+mise use -g github:dohzya/tools@wl-v0.4.0
 ```
 
 ### Method 2: Project Configuration
@@ -33,8 +33,8 @@ Add to your project's `.mise.toml`:
 
 ```toml
 [tools]
-"github:dohzya/dz-skills@md-v0.4.0" = "latest"
-"github:dohzya/dz-skills@wl-v0.4.0" = "latest"
+"github:dohzya/tools@md-v0.4.0" = "latest"
+"github:dohzya/tools@wl-v0.4.0" = "latest"
 ```
 
 Then run:
@@ -49,8 +49,8 @@ Add to your global mise config (`~/.config/mise/config.toml`):
 
 ```toml
 [tools]
-"github:dohzya/dz-skills@md-v0.4.0" = "latest"
-"github:dohzya/dz-skills@wl-v0.4.0" = "latest"
+"github:dohzya/tools@md-v0.4.0" = "latest"
+"github:dohzya/tools@wl-v0.4.0" = "latest"
 ```
 
 Then install:
@@ -75,8 +75,8 @@ Versions are pinned in the tag name itself:
 ```toml
 [tools]
 # Pin to specific versions using @ syntax
-"github:dohzya/dz-skills@md-v0.4.0" = "latest"
-"github:dohzya/dz-skills@wl-v0.4.0" = "latest"
+"github:dohzya/tools@md-v0.4.0" = "latest"
+"github:dohzya/tools@wl-v0.4.0" = "latest"
 ```
 
 To upgrade to a newer version, change the tag (e.g., `md-v0.5.0`).
@@ -116,7 +116,7 @@ mise current wl
 Check GitHub releases for available versions:
 
 ```bash
-gh release list -R dohzya/dz-skills
+gh release list -R dohzya/tools
 ```
 
 ### Permission denied
