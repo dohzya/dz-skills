@@ -50,11 +50,6 @@ information for later reference.
 Generate structured REX (Retour d'EXpérience / Post-Mortem) from technical
 conversations.
 
-### work-journal
-
-Automatically maintain work documentation during project tasks with WORKLOG.md
-and CHANGES.md.
-
 ### worklog
 
 Track work progress with append-only worklog and on-demand checkpoints.
