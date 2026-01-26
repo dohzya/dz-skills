@@ -11,7 +11,12 @@ tasks:
     desc: "Run all tests"
     dir: packages/tools
     cmds:
-      - deno test --allow-read --allow-write --allow-env
+      - deno test --allow-read --allow-write --allow-env --allow-run --reporter=dot {{.CLI_ARGS}}
+  test:pretty:
+    desc: "Run all tests"
+    dir: packages/tools
+    cmds:
+      - deno test --allow-read --allow-write --allow-env --allow-run {{.CLI_ARGS}}
 
   check:
     desc: "Check the code (format & type & lint)"
@@ -28,7 +33,7 @@ tasks:
       - deno fmt
       - deno lint
       - deno check mod.ts
-      - deno test --allow-read --allow-write --allow-env
+      - deno test --allow-read --allow-write --allow-env --allow-run --reporter=dot
 
   publish:
     desc: "Publish package to JSR"

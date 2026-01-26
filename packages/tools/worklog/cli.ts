@@ -918,7 +918,10 @@ async function cmdDone(
   return { status: "task_completed" };
 }
 
-async function cmdList(showAll: boolean, baseDir?: string): Promise<ListOutput> {
+async function cmdList(
+  showAll: boolean,
+  baseDir?: string,
+): Promise<ListOutput> {
   // Only purge the local worklog, not remote ones
   if (!baseDir) {
     await purge();
