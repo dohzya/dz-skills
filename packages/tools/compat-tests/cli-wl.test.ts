@@ -12,7 +12,7 @@ async function runCli(
   code: number;
 }> {
   const cmd = new Deno.Command(Deno.execPath(), {
-    args: ["run", "--allow-read", "--allow-write", CLI_PATH, ...args],
+    args: ["run", "--allow-read", "--allow-write", "--allow-run", CLI_PATH, ...args],
     stdout: "piped",
     stderr: "piped",
     cwd,
@@ -647,6 +647,237 @@ Deno.test("wl: error on task_already_done without force", async () => {
     const result = await runCli(["trace", id, "After done"], workspace);
     assertEquals(result.code !== 0, true);
     assertStringIncludes(result.stderr, "error");
+  } finally {
+    Deno.removeSync(workspace, { recursive: true });
+  }
+});
+// ============================================================================
+// Scopes subcommands tests
+// ============================================================================
+
+function createGitWorkspace(): string {
+  const tmpDir = Deno.makeTempDirSync();
+  // Initialize git repo
+  const gitInit = new Deno.Command("git", {
+    args: ["init"],
+    cwd: tmpDir,
+    stdout: "null",
+    stderr: "null",
+  });
+  gitInit.outputSync();
+  return tmpDir;
+}
+
+Deno.test("wl: scopes list shows all scopes", async () => {
+  const workspace = createGitWorkspace();
+  try {
+    await runCli(["init"], workspace);
+    const result = await runCli(["scopes", "list"], workspace);
+    assertEquals(result.code, 0);
+    assertStringIncludes(result.stdout, "(root)");
+  } finally {
+    Deno.removeSync(workspace, { recursive: true });
+  }
+});
+
+Deno.test("wl: scopes list --json outputs valid JSON", async () => {
+  const workspace = createGitWorkspace();
+  try {
+    await runCli(["init"], workspace);
+    const result = await runCli(["scopes", "list", "--json"], workspace);
+    assertEquals(result.code, 0);
+    const json = JSON.parse(result.stdout);
+    assertEquals(Array.isArray(json.scopes), true);
+    assertEquals(json.scopes.length > 0, true);
+  } finally {
+    Deno.removeSync(workspace, { recursive: true });
+  }
+});
+
+Deno.test("wl: scopes init creates new scope", async () => {
+  const workspace = createGitWorkspace();
+  try {
+    await runCli(["init"], workspace);
+    const result = await runCli(["scopes", "init", "lib", "packages/tools"], workspace);
+    assertEquals(result.code, 0);
+
+    const scopeDir = join(workspace, "packages/tools/.worklog");
+    const stat = await Deno.stat(scopeDir);
+    assertEquals(stat.isDirectory, true);
+  } finally {
+    Deno.removeSync(workspace, { recursive: true });
+  }
+});
+
+Deno.test("wl: scopes init with same path as ID", async () => {
+  const workspace = createGitWorkspace();
+  try {
+    await runCli(["init"], workspace);
+    const result = await runCli(["scopes", "init", "homebrew"], workspace);
+    assertEquals(result.code, 0);
+
+    const scopeDir = join(workspace, "homebrew/.worklog");
+    const stat = await Deno.stat(scopeDir);
+    assertEquals(stat.isDirectory, true);
+  } finally {
+    Deno.removeSync(workspace, { recursive: true });
+  }
+});
+
+Deno.test("wl: scopes list <scope-id> shows details", async () => {
+  const workspace = createGitWorkspace();
+  try {
+    await runCli(["init"], workspace);
+    await runCli(["scopes", "init", "lib", "packages/tools"], workspace);
+
+    const result = await runCli(["scopes", "list", "lib"], workspace);
+    assertEquals(result.code, 0);
+    assertStringIncludes(result.stdout, "lib");
+    assertStringIncludes(result.stdout, "packages/tools");
+    assertStringIncludes(result.stdout, "Tasks:");
+  } finally {
+    Deno.removeSync(workspace, { recursive: true });
+  }
+});
+
+Deno.test("wl: scopes rename changes scope ID", async () => {
+  const workspace = createGitWorkspace();
+  try {
+    await runCli(["init"], workspace);
+    await runCli(["scopes", "init", "lib", "packages/tools"], workspace);
+
+    const renameResult = await runCli(["scopes", "rename", "lib", "tooling"], workspace);
+    assertEquals(renameResult.code, 0);
+
+    const listResult = await runCli(["scopes", "list"], workspace);
+    assertStringIncludes(listResult.stdout, "tooling");
+  } finally {
+    Deno.removeSync(workspace, { recursive: true });
+  }
+});
+
+Deno.test("wl: scopes assign moves task between scopes", async () => {
+  const workspace = createGitWorkspace();
+  try {
+    await runCli(["init"], workspace);
+    await runCli(["scopes", "init", "lib", "packages/tools"], workspace);
+
+    // Create task in root
+    const addResult = await runCli(["add", "--desc", "Test task", "--json"], workspace);
+    const { id } = JSON.parse(addResult.stdout);
+
+    // Assign to lib
+    const assignResult = await runCli(["scopes", "assign", "lib", id], workspace);
+    assertEquals(assignResult.code, 0);
+    assertStringIncludes(assignResult.stdout, "Assigned: 1");
+  } finally {
+    Deno.removeSync(workspace, { recursive: true });
+  }
+});
+
+Deno.test("wl: scopes assign --json outputs valid JSON", async () => {
+  const workspace = createGitWorkspace();
+  try {
+    await runCli(["init"], workspace);
+    await runCli(["scopes", "init", "lib", "packages/tools"], workspace);
+
+    const addResult = await runCli(["add", "--desc", "Test task", "--json"], workspace);
+    const { id } = JSON.parse(addResult.stdout);
+
+    const assignResult = await runCli(["scopes", "assign", "lib", id, "--json"], workspace);
+    assertEquals(assignResult.code, 0);
+    const json = JSON.parse(assignResult.stdout);
+    assertEquals(typeof json.assigned, "number");
+    assertEquals(typeof json.merged, "number");
+    assertEquals(Array.isArray(json.errors), true);
+  } finally {
+    Deno.removeSync(workspace, { recursive: true });
+  }
+});
+
+Deno.test("wl: scopes delete with --delete-tasks removes scope", async () => {
+  const workspace = createGitWorkspace();
+  try {
+    await runCli(["init"], workspace);
+    await runCli(["scopes", "init", "temp"], workspace);
+
+    const deleteResult = await runCli(["scopes", "delete", "temp", "--delete-tasks"], workspace);
+    assertEquals(deleteResult.code, 0);
+
+    const listResult = await runCli(["scopes", "list"], workspace);
+    assertEquals(listResult.stdout.includes("temp"), false);
+  } finally {
+    Deno.removeSync(workspace, { recursive: true });
+  }
+});
+
+Deno.test("wl: scopes delete fails without flags if scope has tasks", async () => {
+  const workspace = createGitWorkspace();
+  try {
+    await runCli(["init"], workspace);
+    await runCli(["scopes", "init", "lib"], workspace);
+
+    // Create task in lib scope
+    await runCli(["add", "--desc", "Task", "--scope", "lib"], workspace);
+
+    const deleteResult = await runCli(["scopes", "delete", "lib"], workspace);
+    assertEquals(deleteResult.code !== 0, true);
+    assertStringIncludes(deleteResult.stderr, "scope_has_tasks");
+  } finally {
+    Deno.removeSync(workspace, { recursive: true });
+  }
+});
+
+// ============================================================================
+// Scope aliases tests
+// ============================================================================
+
+Deno.test("wl: alias '/' refers to root scope", async () => {
+  const workspace = createGitWorkspace();
+  try {
+    await runCli(["init"], workspace);
+    await runCli(["scopes", "init", "lib", "packages/tools"], workspace);
+
+    // Create task in root
+    const addResult = await runCli(["add", "--desc", "Root task", "--json"], workspace);
+    const { id } = JSON.parse(addResult.stdout);
+
+    // Assign to root using '/' alias
+    const assignResult = await runCli(["scopes", "assign", "/", id], workspace);
+    assertEquals(assignResult.code, 0);
+  } finally {
+    Deno.removeSync(workspace, { recursive: true });
+  }
+});
+
+Deno.test("wl: alias '.' refers to current scope", async () => {
+  const workspace = createGitWorkspace();
+  try {
+    await runCli(["init"], workspace);
+    await runCli(["scopes", "init", "lib", "packages/tools"], workspace);
+
+    // Create task using '.' from root
+    const addResult = await runCli(["add", "--desc", "Task", "--scope", ".", "--json"], workspace);
+    assertEquals(addResult.code, 0);
+    const { id } = JSON.parse(addResult.stdout);
+
+    // Verify task is in root
+    const listResult = await runCli(["list", "--json"], workspace);
+    const { tasks } = JSON.parse(listResult.stdout);
+    assertEquals(tasks.some((t: { id: string }) => t.id === id), true);
+  } finally {
+    Deno.removeSync(workspace, { recursive: true });
+  }
+});
+
+Deno.test("wl: scopes list '/' shows root details", async () => {
+  const workspace = createGitWorkspace();
+  try {
+    await runCli(["init"], workspace);
+
+    const result = await runCli(["scopes", "list", "/"], workspace);
+    assertEquals(result.code, 0);
+    assertStringIncludes(result.stdout, "Scope: /");
   } finally {
     Deno.removeSync(workspace, { recursive: true });
   }

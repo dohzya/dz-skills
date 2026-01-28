@@ -53,10 +53,14 @@ const SCOPE_FILE = `${WORKLOG_DIR}/scope.json`;
 const CHECKPOINT_THRESHOLD = 50;
 
 // Monorepo depth limit (configurable via env var)
-const WORKLOG_DEPTH_LIMIT = parseInt(
-  Deno.env.get("WORKLOG_DEPTH_LIMIT") || "5",
-  10,
-);
+const WORKLOG_DEPTH_LIMIT = (() => {
+  try {
+    return parseInt(Deno.env.get("WORKLOG_DEPTH_LIMIT") || "5", 10);
+  } catch {
+    // No --allow-env permission, use default
+    return 5;
+  }
+})();
 
 // Pre-computed section IDs for fixed section titles
 let ENTRIES_ID: string | null = null;
