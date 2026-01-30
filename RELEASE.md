@@ -357,6 +357,66 @@ brew install --build-from-source homebrew/Formula/wl.rb
 brew audit --strict homebrew/Formula/wl.rb
 ```
 
+## Bundle Releases
+
+Bundle releases combine all tools (wl + md) into a single release for the mise
+backend. They use tags like `v0.5.0` (without tool prefix).
+
+### Creating a Bundle Release
+
+```bash
+# 1. CRITICAL: Verify which versions will be included BEFORE pushing the tag
+gh release list -R dohzya/tools | awk '$3 ~ /^wl-v/ {print $3}' | head -1
+gh release list -R dohzya/tools | awk '$3 ~ /^md-v/ {print $3}' | head -1
+
+# 2. If correct, create and push the tag
+git tag v0.5.0
+git push origin v0.5.0
+
+# 3. Monitor: https://github.com/dohzya/tools/actions
+```
+
+### How Bundle Workflow Works
+
+The workflow (`.github/workflows/release-bundle.yml`):
+
+1. Triggered by `v*` tags (excludes `wl-v*`, `md-v*`)
+2. Finds latest `wl-v*` and `md-v*` releases via `gh release list`
+3. Downloads all binaries from those releases
+4. Creates a new release with all binaries combined
+
+### Common Pitfalls for Bundle Releases
+
+#### ❌ Pushing bundle tag before tool release is ready
+
+The bundle will pick up the previous version of the tool.
+
+**Fix:** Always verify with `gh release list` before pushing the bundle tag.
+
+#### ❌ Pushing bundle tag right after tool release
+
+GitHub Actions might not have finished creating the tool release yet.
+
+**Fix:** Wait for the tool release workflow to complete before creating bundle.
+
+### Recreating a Bundle Release
+
+If a bundle was created with wrong versions:
+
+```bash
+# 1. Delete the release and tag
+gh release delete v0.5.0 -R dohzya/tools
+git tag -d v0.5.0
+git push origin :refs/tags/v0.5.0
+
+# 2. Verify correct versions are available
+gh release list -R dohzya/tools | head -5
+
+# 3. Recreate the tag
+git tag v0.5.0
+git push origin v0.5.0
+```
+
 ## Version Strategy
 
 - **Patch version (0.4.X)**: Bug fixes, documentation updates

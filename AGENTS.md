@@ -38,7 +38,16 @@ the complete release process, including:
 - Automated scripts (`task bump`, `task build`, `task update-tap`)
 - Manual step-by-step instructions
 - Critical order of operations (JSR publish BEFORE building binaries!)
+- Bundle releases (combining wl + md for mise backend)
 - Common pitfalls and troubleshooting
+
+**Important:** For bundle releases, always verify which tool versions will be
+included BEFORE pushing the tag:
+
+```bash
+gh release list -R dohzya/tools | awk '$3 ~ /^wl-v/ {print $3}' | head -1
+gh release list -R dohzya/tools | awk '$3 ~ /^md-v/ {print $3}' | head -1
+```
 
 ## CHANGELOG.md
 
