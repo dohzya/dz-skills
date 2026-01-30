@@ -701,12 +701,12 @@ Deno.test("wl: scopes list --json outputs valid JSON", async () => {
   }
 });
 
-Deno.test("wl: scopes init creates new scope", async () => {
+Deno.test("wl: scopes add creates new scope", async () => {
   const workspace = createGitWorkspace();
   try {
     await runCli(["init"], workspace);
     const result = await runCli(
-      ["scopes", "init", "lib", "packages/tools"],
+      ["scopes", "add", "lib", "packages/tools"],
       workspace,
     );
     assertEquals(result.code, 0);
@@ -719,11 +719,11 @@ Deno.test("wl: scopes init creates new scope", async () => {
   }
 });
 
-Deno.test("wl: scopes init with same path as ID", async () => {
+Deno.test("wl: scopes add with same path as ID", async () => {
   const workspace = createGitWorkspace();
   try {
     await runCli(["init"], workspace);
-    const result = await runCli(["scopes", "init", "homebrew"], workspace);
+    const result = await runCli(["scopes", "add", "homebrew"], workspace);
     assertEquals(result.code, 0);
 
     const scopeDir = join(workspace, "homebrew/.worklog");
@@ -738,7 +738,7 @@ Deno.test("wl: scopes list <scope-id> shows details", async () => {
   const workspace = createGitWorkspace();
   try {
     await runCli(["init"], workspace);
-    await runCli(["scopes", "init", "lib", "packages/tools"], workspace);
+    await runCli(["scopes", "add", "lib", "packages/tools"], workspace);
 
     const result = await runCli(["scopes", "list", "lib"], workspace);
     assertEquals(result.code, 0);
@@ -754,7 +754,7 @@ Deno.test("wl: scopes rename changes scope ID", async () => {
   const workspace = createGitWorkspace();
   try {
     await runCli(["init"], workspace);
-    await runCli(["scopes", "init", "lib", "packages/tools"], workspace);
+    await runCli(["scopes", "add", "lib", "packages/tools"], workspace);
 
     const renameResult = await runCli(
       ["scopes", "rename", "lib", "tooling"],
@@ -773,7 +773,7 @@ Deno.test("wl: scopes assign moves task between scopes", async () => {
   const workspace = createGitWorkspace();
   try {
     await runCli(["init"], workspace);
-    await runCli(["scopes", "init", "lib", "packages/tools"], workspace);
+    await runCli(["scopes", "add", "lib", "packages/tools"], workspace);
 
     // Create task in root
     const addResult = await runCli(
@@ -798,7 +798,7 @@ Deno.test("wl: scopes assign --json outputs valid JSON", async () => {
   const workspace = createGitWorkspace();
   try {
     await runCli(["init"], workspace);
-    await runCli(["scopes", "init", "lib", "packages/tools"], workspace);
+    await runCli(["scopes", "add", "lib", "packages/tools"], workspace);
 
     const addResult = await runCli(
       ["add", "--desc", "Test task", "--json"],
@@ -824,7 +824,7 @@ Deno.test("wl: scopes delete with --delete-tasks removes scope", async () => {
   const workspace = createGitWorkspace();
   try {
     await runCli(["init"], workspace);
-    await runCli(["scopes", "init", "temp"], workspace);
+    await runCli(["scopes", "add", "temp"], workspace);
 
     const deleteResult = await runCli([
       "scopes",
@@ -845,7 +845,7 @@ Deno.test("wl: scopes delete fails without flags if scope has tasks", async () =
   const workspace = createGitWorkspace();
   try {
     await runCli(["init"], workspace);
-    await runCli(["scopes", "init", "lib"], workspace);
+    await runCli(["scopes", "add", "lib"], workspace);
 
     // Create task in lib scope
     await runCli(["add", "--desc", "Task", "--scope", "lib"], workspace);
@@ -866,7 +866,7 @@ Deno.test("wl: alias '/' refers to root scope", async () => {
   const workspace = createGitWorkspace();
   try {
     await runCli(["init"], workspace);
-    await runCli(["scopes", "init", "lib", "packages/tools"], workspace);
+    await runCli(["scopes", "add", "lib", "packages/tools"], workspace);
 
     // Create task in root
     const addResult = await runCli(
@@ -887,7 +887,7 @@ Deno.test("wl: alias '.' refers to current scope", async () => {
   const workspace = createGitWorkspace();
   try {
     await runCli(["init"], workspace);
-    await runCli(["scopes", "init", "lib", "packages/tools"], workspace);
+    await runCli(["scopes", "add", "lib", "packages/tools"], workspace);
 
     // Create task using '.' from root
     const addResult = await runCli([
