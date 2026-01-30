@@ -24,14 +24,14 @@ Install both tools together using the bundle release:
 **Direct Command:**
 
 ```bash
-mise use -g https://github.com/dohzya/mise-tools@v0.5.0
+mise use -g https://github.com/dohzya/mise-tools@v0.6.0
 ```
 
 **Project Configuration (`.mise.toml`):**
 
 ```toml
 [tools]
-"https://github.com/dohzya/mise-tools" = "0.5.0"  # Installs md + wl
+"https://github.com/dohzya/mise-tools" = "0.6.0"  # Installs md + wl
 ```
 
 **Global Configuration (`~/.config/mise/config.toml`):**
@@ -66,7 +66,7 @@ The custom mise backend:
 
 Bundle releases (e.g., `v0.5.0`) contain specific versions of both tools:
 
-- `v0.5.0` = `wl-0.4.4` + `md-0.4.0`
+- `v0.6.0` = `wl-0.5.0` + `md-0.4.0`
 
 To see what versions are in a bundle, check the release notes at:
 https://github.com/dohzya/tools/releases
@@ -77,7 +77,7 @@ Pin to specific bundle versions:
 
 ```toml
 [tools]
-"https://github.com/dohzya/mise-tools" = "0.5.0"  # Specific bundle
+"https://github.com/dohzya/mise-tools" = "0.6.0"  # Specific bundle
 "https://github.com/dohzya/mise-tools" = "latest" # Latest bundle
 ```
 
