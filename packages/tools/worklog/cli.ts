@@ -1833,10 +1833,39 @@ async function cmdImport(
 async function cmdScopes(refresh: boolean, cwd: string): Promise<ScopesOutput> {
   const gitRoot = await findGitRoot(cwd);
 
+  // First, try to find a configured parent relationship
+  const currentWorklog = await findNearestWorklog(cwd, null);
+  if (currentWorklog) {
+    const scopeJsonPath = `${currentWorklog}/scope.json`;
+    if (await exists(scopeJsonPath)) {
+      try {
+        const content = await readFile(scopeJsonPath);
+        const config = JSON.parse(content) as ScopeConfig;
+
+        // If we have a parent configured, use parent-based listing
+        if ("parent" in config && config.parent) {
+          const childDir = currentWorklog.slice(0, -WORKLOG_DIR.length - 1);
+          const parentDir = await Deno.realPath(`${childDir}/${config.parent}`);
+          const parentWorklogPath = `${parentDir}/${WORKLOG_DIR}`;
+
+          if (await exists(parentWorklogPath)) {
+            return await listScopesFromParent(
+              parentWorklogPath,
+              currentWorklog,
+            );
+          }
+        }
+      } catch {
+        // Corrupted or unable to resolve, fall through to git-based discovery
+      }
+    }
+  }
+
+  // Fall back to git-root-based discovery
   if (!gitRoot) {
     throw new WtError(
       "not_in_git_repo",
-      "Not in a git repository. Monorepo features require git.",
+      "Not in a git repository and no parent scope configured.",
     );
   }
 
@@ -1870,22 +1899,73 @@ async function cmdScopes(refresh: boolean, cwd: string): Promise<ScopesOutput> {
   return result;
 }
 
+/**
+ * List scopes based on parent's children configuration.
+ * Used for non-nested parent-child relationships.
+ */
+async function listScopesFromParent(
+  parentWorklogPath: string,
+  activeWorklogPath: string,
+): Promise<ScopesOutput> {
+  const parentDir = parentWorklogPath.slice(0, -WORKLOG_DIR.length - 1);
+  const parentScopeJsonPath = `${parentWorklogPath}/scope.json`;
+
+  if (!(await exists(parentScopeJsonPath))) {
+    return { scopes: [] };
+  }
+
+  const content = await readFile(parentScopeJsonPath);
+  const config = JSON.parse(content) as ScopeConfig;
+
+  if (!("children" in config)) {
+    return { scopes: [] };
+  }
+
+  const scopes: Array<{ id: string; path: string; isActive: boolean }> = [];
+
+  // Add parent scope
+  const parentDirName = parentDir.split("/").pop() ?? "parent";
+  scopes.push({
+    id: parentDirName,
+    path: WORKLOG_DIR + "/",
+    isActive: parentWorklogPath === activeWorklogPath,
+  });
+
+  // Add children
+  for (const child of config.children) {
+    const childDir = await Deno.realPath(`${parentDir}/${child.path}`).catch(
+      () => null,
+    );
+    if (!childDir) continue;
+
+    const childWorklogPath = `${childDir}/${WORKLOG_DIR}`;
+    if (!(await exists(childWorklogPath))) continue;
+
+    scopes.push({
+      id: child.id,
+      path: child.path + "/" + WORKLOG_DIR + "/",
+      isActive: childWorklogPath === activeWorklogPath,
+    });
+  }
+
+  return { scopes };
+}
+
 async function cmdScopesList(
   cwd: string,
   refresh: boolean,
   scopeId?: string,
 ): Promise<ScopesOutput | ScopeDetailOutput> {
-  const gitRoot = await findGitRoot(cwd);
-
-  if (!gitRoot) {
-    throw new WtError(
-      "not_in_git_repo",
-      "Not in a git repository. Monorepo features require git.",
-    );
-  }
-
   if (scopeId) {
     // Show details of a specific scope
+    const gitRoot = await findGitRoot(cwd);
+    if (!gitRoot) {
+      throw new WtError(
+        "not_in_git_repo",
+        "Not in a git repository. Scope details require git.",
+      );
+    }
+
     const worklogPath = await resolveScopeIdentifier(scopeId, gitRoot, cwd);
     const index = await loadIndexFrom(worklogPath);
     const taskCount = Object.keys(index.tasks).length;
@@ -1900,12 +1980,12 @@ async function cmdScopesList(
       taskCount,
     };
   } else {
-    // List all scopes (reuse existing cmdScopes logic)
+    // List all scopes (reuse existing cmdScopes logic which handles non-git case)
     return await cmdScopes(refresh, cwd);
   }
 }
 
-async function cmdScopesInit(
+async function cmdScopesAdd(
   scopeId: string,
   path: string | undefined,
   cwd: string,
@@ -1922,45 +2002,223 @@ async function cmdScopesInit(
   // Determine effective path (default to scopeId if not provided)
   const effectivePath = path ?? scopeId;
 
-  // Create .worklog directory
+  // Target directory and worklog path
   const targetDir = `${gitRoot}/${effectivePath}`;
   const worklogPath = `${targetDir}/${WORKLOG_DIR}`;
 
-  // Check if already exists
+  // Check if worklog already exists
   if (await exists(worklogPath)) {
+    // Child worklog exists - check if it already has a parent
+    const scopeJsonPath = `${worklogPath}/scope.json`;
+    if (await exists(scopeJsonPath)) {
+      try {
+        const content = await readFile(scopeJsonPath);
+        const config = JSON.parse(content) as ScopeConfig;
+        if ("parent" in config && config.parent) {
+          throw new WtError(
+            "already_has_parent",
+            `Scope at ${effectivePath} already has a parent configured. Use 'scopes add-parent' to change it.`,
+          );
+        }
+      } catch (e) {
+        if (e instanceof WtError) throw e;
+        // Corrupted or missing scope.json, proceed to configure
+      }
+    }
+
+    // Configure parent for existing worklog
+    const scopeDir = worklogPath.slice(0, -WORKLOG_DIR.length - 1);
+    const relativeToGitRoot = scopeDir.slice(gitRoot.length + 1);
+    const depth = relativeToGitRoot.split("/").filter((p) => p).length;
+    const parentPath = "../".repeat(depth);
+    const childConfig: ScopeConfigChild = { parent: parentPath };
+    await saveScopeJson(worklogPath, childConfig);
+  } else {
+    // Create new worklog directory structure
+    await Deno.mkdir(`${worklogPath}/tasks`, { recursive: true });
+    await writeFile(
+      `${worklogPath}/index.json`,
+      JSON.stringify({ tasks: {} }, null, 2),
+    );
+
+    // Configure parent path
+    const scopeDir = worklogPath.slice(0, -WORKLOG_DIR.length - 1);
+    const relativeToGitRoot = scopeDir.slice(gitRoot.length + 1);
+    const depth = relativeToGitRoot.split("/").filter((p) => p).length;
+    const parentPath = "../".repeat(depth);
+    const childConfig: ScopeConfigChild = { parent: parentPath };
+    await saveScopeJson(worklogPath, childConfig);
+  }
+
+  // Update parent scope.json to add this child
+  const rootWorklogPath = `${gitRoot}/${WORKLOG_DIR}`;
+  const rootConfig = await loadOrCreateScopeJson(rootWorklogPath, gitRoot);
+
+  if ("children" in rootConfig) {
+    // Check if child already exists
+    const existingChild = rootConfig.children.find(
+      (c) => c.path === effectivePath,
+    );
+    if (!existingChild) {
+      rootConfig.children.push({
+        path: effectivePath,
+        id: scopeId,
+      });
+    } else {
+      // Update ID if different
+      existingChild.id = scopeId;
+    }
+  } else {
+    // Root is configured as a child? This shouldn't happen for git root
     throw new WtError(
-      "already_initialized",
-      `Scope already exists at: ${effectivePath}`,
+      "invalid_state",
+      "Root worklog is configured as a child scope. This is invalid.",
     );
   }
 
-  // Create directory structure
-  await Deno.mkdir(`${worklogPath}/tasks`, { recursive: true });
-  await writeFile(
-    `${worklogPath}/index.json`,
-    JSON.stringify({ tasks: {} }, null, 2),
-  );
+  await saveScopeJson(rootWorklogPath, rootConfig);
 
-  // Refresh hierarchy to update parent scope.json
-  const scopes = await discoverScopes(gitRoot, WORKLOG_DEPTH_LIMIT);
-  await refreshScopeHierarchy(gitRoot, scopes);
+  return { status: "scope_created" };
+}
 
-  // If scopeId !== path, update custom ID in parent scope.json
-  if (scopeId !== effectivePath) {
-    const rootConfig = await loadOrCreateScopeJson(
-      `${gitRoot}/${WORKLOG_DIR}`,
-      gitRoot,
+/**
+ * Calculate relative path from one directory to another.
+ * Both paths should be absolute.
+ */
+function calculateRelativePath(from: string, to: string): string {
+  const fromParts = from.split("/").filter((p) => p);
+  const toParts = to.split("/").filter((p) => p);
+
+  // Find common prefix length
+  let commonLength = 0;
+  while (
+    commonLength < fromParts.length &&
+    commonLength < toParts.length &&
+    fromParts[commonLength] === toParts[commonLength]
+  ) {
+    commonLength++;
+  }
+
+  // Number of "../" needed to go up from 'from' to common ancestor
+  const upCount = fromParts.length - commonLength;
+
+  // Path to go down from common ancestor to 'to'
+  const downParts = toParts.slice(commonLength);
+
+  // Build relative path
+  const relativeParts = [...Array(upCount).fill(".."), ...downParts];
+
+  return relativeParts.length > 0 ? relativeParts.join("/") : ".";
+}
+
+async function cmdScopesAddParent(
+  parentPath: string,
+  scopeId: string | undefined,
+  cwd: string,
+): Promise<StatusOutput> {
+  // Find the child worklog (current directory's .worklog)
+  const childWorklogPath = await findNearestWorklog(cwd, null);
+
+  if (!childWorklogPath) {
+    throw new WtError(
+      "not_initialized",
+      "No worklog found. Run 'wl init' first.",
     );
-    if ("children" in rootConfig) {
-      const child = rootConfig.children.find((c) => c.path === effectivePath);
-      if (child) {
-        child.id = scopeId;
-        await saveScopeJson(`${gitRoot}/${WORKLOG_DIR}`, rootConfig);
+  }
+
+  // Get the child directory (parent of .worklog)
+  const childDir = childWorklogPath.slice(0, -WORKLOG_DIR.length - 1);
+
+  // Resolve parent path (can be relative to cwd)
+  const resolvedParentPath = parentPath.startsWith("/")
+    ? parentPath
+    : `${cwd}/${parentPath}`;
+
+  // Normalize the path (resolve .. and .)
+  const parentDir = await Deno.realPath(resolvedParentPath).catch(() => {
+    throw new WtError(
+      "io_error",
+      `Parent path does not exist: ${parentPath}`,
+    );
+  });
+
+  const parentWorklogPath = `${parentDir}/${WORKLOG_DIR}`;
+
+  // Check if parent worklog exists
+  if (!(await exists(parentWorklogPath))) {
+    throw new WtError(
+      "not_initialized",
+      `No worklog found at parent path: ${parentPath}. Run 'wl init' there first.`,
+    );
+  }
+
+  // Check if child already has a parent
+  const childScopeJsonPath = `${childWorklogPath}/scope.json`;
+  if (await exists(childScopeJsonPath)) {
+    try {
+      const content = await readFile(childScopeJsonPath);
+      const config = JSON.parse(content) as ScopeConfig;
+      if ("parent" in config && config.parent) {
+        throw new WtError(
+          "already_has_parent",
+          `This scope already has a parent configured: ${config.parent}. Remove it first if you want to change parents.`,
+        );
       }
+    } catch (e) {
+      if (e instanceof WtError) throw e;
+      // Corrupted, will be overwritten
     }
   }
 
-  return { status: "scope_created" };
+  // Calculate relative path from child to parent
+  const relativeToParent = calculateRelativePath(childDir, parentDir);
+
+  // Configure child's scope.json
+  const childConfig: ScopeConfigChild = { parent: relativeToParent };
+  await saveScopeJson(childWorklogPath, childConfig);
+
+  // Load parent's scope.json and add this child
+  const parentConfig = await loadOrCreateScopeJson(
+    parentWorklogPath,
+    parentDir,
+  );
+
+  if (!("children" in parentConfig)) {
+    // Parent is configured as a child itself - convert to have children
+    // (a scope can be both a child and a parent)
+    // For now, just throw an error as this is a complex scenario
+    throw new WtError(
+      "invalid_state",
+      "Parent is configured as a child scope itself. Nested hierarchies are not yet supported.",
+    );
+  }
+
+  // Calculate relative path from parent to child
+  const relativeToChild = calculateRelativePath(parentDir, childDir);
+
+  // Determine the ID for this child
+  const childId = scopeId ?? childDir.split("/").pop() ?? relativeToChild;
+
+  // Check if child already exists in parent
+  const existingChild = parentConfig.children.find(
+    (c) => c.path === relativeToChild,
+  );
+
+  if (!existingChild) {
+    parentConfig.children.push({
+      path: relativeToChild,
+      id: childId,
+    });
+  } else {
+    // Update ID if provided
+    if (scopeId) {
+      existingChild.id = scopeId;
+    }
+  }
+
+  await saveScopeJson(parentWorklogPath, parentConfig);
+
+  return { status: "parent_configured" };
 }
 
 async function cmdScopesRename(
@@ -2294,7 +2552,8 @@ Scope management:
   scopes [--refresh]                    List all scopes
   scopes list [--refresh]               List all scopes
   scopes list <scope-id>                Show scope details
-  scopes init <scope-id> [<path>]       Create new scope (path=scope-id if omitted)
+  scopes add <scope-id> [<path>]        Add scope (creates or links existing .worklog)
+  scopes add-parent [--id <id>] <path>  Configure parent for current scope
   scopes rename <scope-id> <new-id>     Rename scope ID
   scopes delete <scope-id> [options]    Delete scope
   scopes assign <scope-id> <task-id>... Assign task(s) to scope
@@ -2336,6 +2595,7 @@ function parseArgs(args: string[]): {
     to: string | null;
     moveTo: string | null;
     deleteTasks: boolean;
+    id: string | null;
   };
   positional: string[];
 } {
@@ -2355,6 +2615,7 @@ function parseArgs(args: string[]): {
     to: null as string | null,
     moveTo: null as string | null,
     deleteTasks: false,
+    id: null as string | null,
   };
   const positional: string[] = [];
   let command = "";
@@ -2407,6 +2668,10 @@ function parseArgs(args: string[]): {
       flags.moveTo = arg.slice(10);
     } else if (arg === "--delete-tasks") {
       flags.deleteTasks = true;
+    } else if (arg === "--id" && i + 1 < args.length) {
+      flags.id = args[++i];
+    } else if (arg.startsWith("--id=")) {
+      flags.id = arg.slice(5);
     } else if (!command) {
       command = arg;
     } else {
@@ -2416,7 +2681,14 @@ function parseArgs(args: string[]): {
 
   // Extract subcommand for "scopes" command
   let subcommand: string | null = null;
-  const validSubcommands = ["list", "init", "rename", "delete", "assign"];
+  const validSubcommands = [
+    "list",
+    "add",
+    "add-parent",
+    "rename",
+    "delete",
+    "assign",
+  ];
 
   if (command === "scopes" && positional.length > 0) {
     if (validSubcommands.includes(positional[0])) {
@@ -2597,16 +2869,35 @@ export async function main(args: string[]): Promise<void> {
             break;
           }
 
-          case "init": {
+          case "add": {
             if (positional.length < 1) {
               throw new WtError(
                 "invalid_args",
-                "Usage: wl scopes init <scope-id> [<path>]",
+                "Usage: wl scopes add <scope-id> [<path>]",
               );
             }
             const scopeId = positional[0];
             const path = positional.length > 1 ? positional[1] : undefined;
-            const output = await cmdScopesInit(scopeId, path, cwd);
+            const output = await cmdScopesAdd(scopeId, path, cwd);
+            console.log(
+              flags.json ? JSON.stringify(output) : formatStatus(output),
+            );
+            break;
+          }
+
+          case "add-parent": {
+            if (positional.length < 1) {
+              throw new WtError(
+                "invalid_args",
+                "Usage: wl scopes add-parent [--id <id>] <path>",
+              );
+            }
+            const parentPath = positional[0];
+            const output = await cmdScopesAddParent(
+              parentPath,
+              flags.id ?? undefined,
+              cwd,
+            );
             console.log(
               flags.json ? JSON.stringify(output) : formatStatus(output),
             );

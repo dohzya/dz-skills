@@ -146,6 +146,8 @@ export interface AssignOutput {
 export type WtErrorCode =
   | "not_initialized"
   | "already_initialized"
+  | "already_has_parent"
+  | "invalid_state"
   | "task_not_found"
   | "task_already_done"
   | "no_uncheckpointed_entries"
