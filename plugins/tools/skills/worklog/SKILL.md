@@ -68,6 +68,26 @@ wl trace 250116a -t T11:35 "Pivot to CurrencyBucket approach - tests pass"
 
 Keep messages concise. Include "why" for failures and pivots.
 
+### Timestamps for batch tracing
+
+**Rule of thumb:**
+
+- **Just did it?** Don't use `-t` (automatically uses current time)
+- **Tracing after the fact?** ALWAYS use `-t` with the actual time
+
+```bash
+# Just completed the action → no timestamp needed
+wl trace 260202a "Fixed the validation bug"
+
+# Tracing multiple past actions → use -t with actual times
+wl trace 260202a -t T14:30 "Started investigating the bug"
+wl trace 260202a -t T15:15 "Found root cause in validator"
+wl trace 260202a -t T15:45 "Applied fix + tests pass"
+```
+
+This keeps the worklog chronologically accurate when recreating a work session
+from memory or notes.
+
 ### Checkpointing
 
 Create checkpoints when:
