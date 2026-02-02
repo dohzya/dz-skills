@@ -35,6 +35,15 @@ export interface Checkpoint {
   learnings: string;
 }
 
+export type TodoStatus = "todo" | "wip" | "blocked" | "cancelled" | "done";
+
+export interface Todo {
+  id: string; // Unique 7-char base62 ID
+  text: string;
+  status: TodoStatus;
+  metadata: Record<string, string>; // Custom attributes like dependsOn, due, etc.
+}
+
 // Command outputs
 export interface AddOutput {
   id: string;
@@ -146,6 +155,15 @@ export interface AssignOutput {
   errors: Array<{ taskId: string; error: string }>;
 }
 
+export interface TodoListOutput {
+  todos: Todo[];
+}
+
+export interface TodoAddOutput {
+  id: string;
+  taskId: string;
+}
+
 // Error handling
 export type WtErrorCode =
   | "not_initialized"
@@ -165,7 +183,9 @@ export type WtErrorCode =
   | "scope_has_tasks"
   | "scope_deleted"
   | "scope_created"
-  | "scope_renamed";
+  | "scope_renamed"
+  | "todo_not_found"
+  | "task_has_pending_todos";
 
 export class WtError extends Error {
   constructor(

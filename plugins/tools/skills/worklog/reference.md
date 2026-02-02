@@ -7,7 +7,7 @@ Complete reference for the worklog skill.
 ### Core commands
 
 ```bash
-wl add [--desc "description"]                    # Create task → outputs ID
+wl add [--desc "description"] [--todo "text"]... # Create task → outputs ID
 wl trace <id> [options] "message"                # Log entry → "ok" or "checkpoint recommended"
 wl logs <id>                                     # Get context (last checkpoint + recent entries)
 wl checkpoint <id> "changes" "learnings"         # Create checkpoint
@@ -15,6 +15,15 @@ wl done <id> "changes" "learnings"               # Final checkpoint + close task
 wl list [--all] [-p PATH]                        # List active tasks (--all includes done <30d)
 wl summary [--since YYYY-MM-DD]                  # Aggregate all tasks
 wl import [-p PATH | -b BRANCH] [--rm]           # Import from other worktree
+```
+
+### TODO management
+
+```bash
+wl todo list [<task-id>]                         # List todos (all active tasks or specific task)
+wl todo add <task-id> <text>                     # Add a todo to a task
+wl todo set key=value <todo-id>                  # Update todo (e.g., status=done)
+wl todo next [<task-id>]                         # Show next available todo
 ```
 
 ### Global options
@@ -200,6 +209,37 @@ checkpoint created
 task completed
 ```
 
+### `wl todo list`
+
+```
+Task: 260203a "Implement feature X"
+  abc1234  [ ] Analyze existing code
+  def5678  [>] Write tests  [dependsOn:: abc1234]
+  ghi9012  [x] Setup environment  [due:: 2026-02-10]
+
+Task: 260203b "Fix bug Y"
+  jkl3456  [/] Debug issue
+```
+
+### `wl todo add` / `wl todo set`
+
+```
+todo added: abc1234
+```
+
+```
+todo updated
+```
+
+### `wl todo next`
+
+```
+Next TODO: abc1234
+Task: 260203a "Implement feature X"
+Text: Analyze existing code
+Status: todo
+```
+
 ## Multiple tasks
 
 You can have multiple active tasks. Always specify the task ID:
@@ -210,6 +250,90 @@ wl trace 250116b "Fixed unrelated login bug"
 ```
 
 Use `wl list` to see all active tasks if you lose track.
+
+## TODO Management
+
+TODOs allow tracking discrete action items within a task.
+
+### Creating tasks with TODOs
+
+```bash
+# Create task with initial TODOs
+wl add "Feature X" --todo "Analyze code" --todo "Write tests" --todo "Implement"
+
+# Shortcut: use first TODO as task description
+wl add --todo "Fix authentication bug"
+```
+
+### Managing TODOs
+
+```bash
+# List all TODOs across all active tasks
+wl todo list
+
+# List TODOs for a specific task
+wl todo list <task-id>
+
+# Add a new TODO to an existing task
+wl todo add <task-id> "Deploy to staging"
+
+# Update TODO status or metadata
+wl todo set status=done <todo-id>
+wl todo set status=wip <todo-id>
+wl todo set status=blocked <todo-id>
+wl todo set status=cancelled <todo-id>
+
+# Add custom metadata
+wl todo set due=2026-02-15 <todo-id>
+wl todo set priority=high <todo-id>
+
+# Set dependency
+wl todo set status=blocked dependsOn=<other-todo-id> <todo-id>
+
+# Find next available TODO
+wl todo next <task-id>
+```
+
+### TODO Statuses
+
+| Status | Symbol | Description |
+| -------- | ------ | ----------------------------- |
+| todo | `[ ]` | Pending, ready to start |
+| wip | `[/]` | Work in progress |
+| blocked | `[>]` | Blocked, waiting on dependency |
+| cancelled | `[-]` | Cancelled, not needed |
+| done | `[x]` | Completed |
+
+### Task completion with TODOs
+
+Tasks with pending TODOs (todo/wip/blocked) cannot be marked done:
+
+```bash
+wl done <task-id> "changes" "learnings"
+# Error: Task has 3 pending todo(s). Use --force to complete anyway.
+
+# Force completion if TODOs are obsolete
+wl done <task-id> "changes" "learnings" --force
+```
+
+### TODO Format
+
+TODOs are stored in the task markdown file under `# TODO` section:
+
+```markdown
+# TODO
+
+- [ ] Analyze existing code  [id:: abc1234] ^abc1234
+- [>] Write tests  [id:: def5678] [dependsOn:: abc1234] ^def5678
+- [x] Setup environment  [id:: ghi9012] [due:: 2026-02-10] ^ghi9012
+```
+
+Each TODO has:
+- **Unique ID** (7-char base62): Shown in listings, used for `wl todo set`
+- **Status checkbox**: `[ ]`, `[/]`, `[>]`, `[-]`, or `[x]`
+- **Text**: The TODO description
+- **Metadata** (optional): Custom key-value pairs like `[dependsOn:: xyz]`, `[due:: date]`
+- **Block reference** (^id): For Obsidian cross-referencing with `[[task-id#^todo-id]]`
 
 ## File structure
 

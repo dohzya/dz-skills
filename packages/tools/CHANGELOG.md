@@ -10,6 +10,14 @@ and this project adheres to
 
 ### Added
 
+- **worklog:** TODO management system for tracking action items within tasks
+  - Commands: `wl todo list`, `wl todo add`, `wl todo set`, `wl todo next`
+  - 5 statuses: todo, wip, blocked, cancelled, done
+  - Create tasks with initial TODOs via `wl add --todo "text"`
+  - Custom metadata support (dependsOn, due, priority, etc.)
+  - Unique 7-char base62 IDs for TODOs
+  - Obsidian-compatible block references for cross-referencing
+  - `wl done` blocks if pending TODOs exist (--force to override)
 - **worklog:** Flexible timestamp support for `wl trace` command via
   `--timestamp` / `-t` flag
   - Format: `[YYYY-MM-DD]THH:mm[:SS][<tz>]`

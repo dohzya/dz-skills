@@ -19,6 +19,10 @@ import {
   type StatusOutput,
   type SummaryOutput,
   type TaskMeta,
+  type Todo,
+  type TodoAddOutput,
+  type TodoListOutput,
+  type TodoStatus,
   type TraceOutput,
   WtError,
 } from "./types.ts";
@@ -65,6 +69,7 @@ const WORKLOG_DEPTH_LIMIT = (() => {
 // Pre-computed section IDs for fixed section titles
 let ENTRIES_ID: string | null = null;
 let CHECKPOINTS_ID: string | null = null;
+let TODOS_ID: string | null = null;
 
 async function getEntriesId(): Promise<string> {
   if (!ENTRIES_ID) {
@@ -78,6 +83,13 @@ async function getCheckpointsId(): Promise<string> {
     CHECKPOINTS_ID = await sectionHash(1, "Checkpoints", 0);
   }
   return CHECKPOINTS_ID;
+}
+
+async function getTodosId(): Promise<string> {
+  if (!TODOS_ID) {
+    TODOS_ID = await sectionHash(1, "TODO", 0);
+  }
+  return TODOS_ID;
 }
 
 // ============================================================================
@@ -266,6 +278,17 @@ function incrementLetter(s: string): string {
   }
   if (i < 0) chars.unshift("a");
   return chars.join("");
+}
+
+function generateTodoId(): string {
+  // Generate random 7-char base62 ID for todos
+  const chars =
+    "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+  let id = "";
+  for (let i = 0; i < 7; i++) {
+    id += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return id;
 }
 
 async function generateTaskId(): Promise<string> {
@@ -875,6 +898,7 @@ interface ParsedTask {
   meta: TaskMeta;
   entries: Entry[];
   checkpoints: Checkpoint[];
+  todos: Todo[];
 }
 
 async function parseTaskFile(content: string): Promise<ParsedTask> {
@@ -958,7 +982,63 @@ async function parseTaskFile(content: string): Promise<ParsedTask> {
     }
   }
 
-  return { meta, entries, checkpoints };
+  // Parse todos (list items under # TODO)
+  const todos: Todo[] = [];
+  const todosId = await getTodosId();
+  const todosSection = findSection(doc, todosId);
+
+  if (todosSection) {
+    const todosEnd = getSectionEndLine(doc, todosSection, true);
+
+    for (let i = todosSection.line + 1; i < todosEnd; i++) {
+      const line = doc.lines[i];
+
+      // Match todo line: - [X] text  [key:: value] ... ^id
+      const todoMatch = line.match(/^-\s*\[(.)\]\s*(.+)$/);
+      if (!todoMatch) continue;
+
+      const statusChar = todoMatch[1];
+      const rest = todoMatch[2];
+
+      // Extract status
+      const statusMap: Record<string, TodoStatus> = {
+        " ": "todo",
+        "/": "wip",
+        ">": "blocked",
+        "-": "cancelled",
+        "x": "done",
+      };
+      const status = statusMap[statusChar] || "todo";
+
+      // Extract block reference ^id at the end
+      const blockRefMatch = rest.match(/\^(\w+)\s*$/);
+      if (!blockRefMatch) continue; // Skip if no block ref
+
+      const id = blockRefMatch[1];
+      const beforeBlockRef = rest.substring(0, blockRefMatch.index).trim();
+
+      // Extract all metadata [key:: value]
+      const metadata: Record<string, string> = {};
+      let text = beforeBlockRef;
+      const metadataRegex = /\[(\w+)::\s*([^\]]+)\]/g;
+      let match;
+
+      while ((match = metadataRegex.exec(beforeBlockRef)) !== null) {
+        const key = match[1];
+        const value = match[2].trim();
+        if (key !== "id") { // Skip [id:: ...] as it's redundant with ^id
+          metadata[key] = value;
+        }
+      }
+
+      // Remove metadata from text
+      text = text.replace(/\s*\[(\w+)::\s*([^\]]+)\]/g, "").trim();
+
+      todos.push({ id, text, status, metadata });
+    }
+  }
+
+  return { meta, entries, checkpoints, todos };
 }
 
 function getEntriesAfterCheckpoint(
@@ -982,6 +1062,112 @@ function getLastCheckpoint(checkpoints: Checkpoint[]): Checkpoint | null {
 
 function formatAdd(output: AddOutput): string {
   return output.id;
+}
+
+function formatTodoList(output: TodoListOutput): string {
+  if (output.todos.length === 0) {
+    return "No todos";
+  }
+
+  const statusChars: Record<TodoStatus, string> = {
+    "todo": " ",
+    "wip": "/",
+    "blocked": ">",
+    "cancelled": "-",
+    "done": "x",
+  };
+
+  // Group todos by task if taskId is present in metadata
+  const byTask = new Map<string, { desc: string; todos: Todo[] }>();
+  const ungrouped: Todo[] = [];
+
+  for (const todo of output.todos) {
+    const taskId = todo.metadata.taskId;
+    const taskDesc = todo.metadata.taskDesc;
+
+    if (taskId && taskDesc) {
+      if (!byTask.has(taskId)) {
+        byTask.set(taskId, { desc: taskDesc, todos: [] });
+      }
+      byTask.get(taskId)!.todos.push(todo);
+    } else {
+      ungrouped.push(todo);
+    }
+  }
+
+  const lines: string[] = [];
+
+  // Format grouped todos
+  if (byTask.size > 0) {
+    for (const [taskId, { desc, todos }] of byTask) {
+      lines.push(`\n${taskId}: ${desc}`);
+      for (const todo of todos) {
+        const statusChar = statusChars[todo.status];
+        let line = `  ${todo.id} [${statusChar}] ${todo.text}`;
+
+        // Add metadata (excluding taskId and taskDesc which are already shown)
+        const metadata = Object.entries(todo.metadata)
+          .filter(([k]) => k !== "taskId" && k !== "taskDesc")
+          .map(([k, v]) => `[${k}:: ${v}]`)
+          .join(" ");
+
+        if (metadata) {
+          line += `  ${metadata}`;
+        }
+
+        lines.push(line);
+      }
+    }
+  }
+
+  // Format ungrouped todos
+  for (const todo of ungrouped) {
+    const statusChar = statusChars[todo.status];
+    let line = `${todo.id} [${statusChar}] ${todo.text}`;
+
+    const metadata = Object.entries(todo.metadata)
+      .map(([k, v]) => `[${k}:: ${v}]`)
+      .join(" ");
+
+    if (metadata) {
+      line += `  ${metadata}`;
+    }
+
+    lines.push(line);
+  }
+
+  return lines.join("\n").trim();
+}
+
+function formatTodoAdd(output: TodoAddOutput): string {
+  return output.id;
+}
+
+function formatTodoNext(todo: Todo | null): string {
+  if (!todo) {
+    return "No available todo";
+  }
+
+  const statusChars: Record<TodoStatus, string> = {
+    "todo": " ",
+    "wip": "/",
+    "blocked": ">",
+    "cancelled": "-",
+    "done": "x",
+  };
+
+  const statusChar = statusChars[todo.status];
+  let line = `${todo.id} [${statusChar}] ${todo.text}`;
+
+  const metadata = Object.entries(todo.metadata)
+    .map(([k, v]) => `[${k}:: ${v}]`)
+    .join(" ");
+
+  if (metadata) {
+    line += `  ${metadata}`;
+  }
+
+  return line;
 }
 
 function formatTrace(output: TraceOutput): string {
@@ -1159,13 +1345,23 @@ async function cmdInit(): Promise<StatusOutput> {
   return { status: "initialized" };
 }
 
-async function cmdAdd(desc: string): Promise<AddOutput> {
+async function cmdAdd(desc: string, todos: string[] = []): Promise<AddOutput> {
   await autoInit();
   await purge();
 
   const id = await generateTaskId();
   const uid = crypto.randomUUID();
   const now = getLocalISOString();
+
+  // Build TODO section if todos are provided
+  let todoSection = "";
+  if (todos.length > 0) {
+    todoSection = "\n# TODO\n\n";
+    for (const todoText of todos) {
+      const todoId = generateTodoId();
+      todoSection += `- [ ] ${todoText}  [id:: ${todoId}] ^${todoId}\n`;
+    }
+  }
 
   const content = `---
 id: ${id}
@@ -1180,7 +1376,7 @@ has_uncheckpointed_entries: false
 
 # Entries
 
-# Checkpoints
+# Checkpoints${todoSection}
 `;
 
   await saveTaskContent(id, content);
@@ -1396,8 +1592,26 @@ async function cmdDone(
   taskId: string,
   changes: string,
   learnings: string,
+  force?: boolean,
 ): Promise<StatusOutput> {
   await purge();
+
+  // Check for pending todos (unless force is enabled)
+  if (!force) {
+    const content = await loadTaskContent(taskId);
+    const { todos } = await parseTaskFile(content);
+
+    const pendingTodos = todos.filter(
+      (t) => t.status !== "done" && t.status !== "cancelled",
+    );
+
+    if (pendingTodos.length > 0) {
+      throw new WtError(
+        "task_has_pending_todos",
+        `Task has ${pendingTodos.length} pending todo(s). Use --force to complete anyway.`,
+      );
+    }
+  }
 
   // First create the final checkpoint (always force since this is the final one)
   await cmdCheckpoint(taskId, changes, learnings, true);
@@ -1427,6 +1641,228 @@ async function cmdDone(
   }
 
   return { status: "task_completed" };
+}
+
+async function cmdTodoList(taskId?: string): Promise<TodoListOutput> {
+  await purge();
+
+  if (taskId) {
+    // List todos for specific task
+    const content = await loadTaskContent(taskId);
+    const { todos } = await parseTaskFile(content);
+    return { todos };
+  } else {
+    // List todos for all active tasks
+    const index = await loadIndex();
+    const allTodos: Todo[] = [];
+
+    for (const [id, task] of Object.entries(index.tasks)) {
+      if (task.status === "done") continue;
+
+      try {
+        const content = await loadTaskContent(id);
+        const { todos, meta } = await parseTaskFile(content);
+
+        // Add task context to each todo
+        for (const todo of todos) {
+          allTodos.push({
+            ...todo,
+            metadata: {
+              ...todo.metadata,
+              taskId: id,
+              taskDesc: meta.desc,
+            },
+          });
+        }
+      } catch {
+        // Task file might not exist, skip
+        continue;
+      }
+    }
+
+    return { todos: allTodos };
+  }
+}
+
+async function cmdTodoAdd(
+  taskId: string,
+  text: string,
+  metadata: Record<string, string> = {},
+): Promise<TodoAddOutput> {
+  await purge();
+
+  const content = await loadTaskContent(taskId);
+  const doc = await parseDocument(content);
+
+  let todosSection = findSection(doc, await getTodosId());
+
+  // Create # TODO section if it doesn't exist
+  if (!todosSection) {
+    const checkpointsId = await getCheckpointsId();
+    const checkpointsSection = findSection(doc, checkpointsId);
+    const insertLine = checkpointsSection
+      ? checkpointsSection.line - 1
+      : doc.lines.length;
+
+    doc.lines.splice(insertLine, 0, "", "# TODO", "");
+    // Re-parse to get the new section
+    const reparsed = await parseDocument(serializeDocument(doc));
+    Object.assign(doc, reparsed);
+    todosSection = findSection(doc, await getTodosId());
+  }
+
+  const todoId = generateTodoId();
+  const todosEnd = getSectionEndLine(doc, todosSection!, true);
+
+  // Build metadata string
+  let metadataStr = `  [id:: ${todoId}]`;
+  for (const [key, value] of Object.entries(metadata)) {
+    metadataStr += ` [${key}:: ${value}]`;
+  }
+
+  const todoLine = `- [ ] ${text}${metadataStr} ^${todoId}`;
+  doc.lines.splice(todosEnd, 0, todoLine);
+
+  await saveTaskContent(taskId, serializeDocument(doc));
+
+  return { id: todoId, taskId };
+}
+
+async function cmdTodoSet(
+  todoId: string,
+  updates: Record<string, string>,
+): Promise<StatusOutput> {
+  await purge();
+
+  // Find which task contains this todo
+  const index = await loadIndex();
+  let foundTaskId: string | null = null;
+  let foundTodo: Todo | null = null;
+
+  for (const taskId of Object.keys(index.tasks)) {
+    try {
+      const content = await loadTaskContent(taskId);
+      const { todos } = await parseTaskFile(content);
+      const todo = todos.find((t) => t.id === todoId);
+      if (todo) {
+        foundTaskId = taskId;
+        foundTodo = todo;
+        break;
+      }
+    } catch {
+      // Task file might not exist, skip
+      continue;
+    }
+  }
+
+  if (!foundTaskId || !foundTodo) {
+    throw new WtError("todo_not_found", `Todo ${todoId} not found`);
+  }
+
+  const content = await loadTaskContent(foundTaskId);
+  const doc = await parseDocument(content);
+
+  // Find the todo line
+  const todosSection = findSection(doc, await getTodosId());
+  if (!todosSection) {
+    throw new WtError("todo_not_found", `Todo section not found`);
+  }
+
+  const todosEnd = getSectionEndLine(doc, todosSection, true);
+
+  for (let i = todosSection.line + 1; i < todosEnd; i++) {
+    const line = doc.lines[i];
+    if (line.includes(`^${todoId}`)) {
+      // Parse the line
+      const todoMatch = line.match(/^(-\s*\[)(.)\](\s*)(.+)$/);
+      if (!todoMatch) continue;
+
+      const prefix = todoMatch[1];
+      let statusChar = todoMatch[2];
+      const spacing = todoMatch[3];
+      let rest = todoMatch[4];
+
+      // Apply updates
+      if (updates.status) {
+        const statusMap: Record<TodoStatus, string> = {
+          "todo": " ",
+          "wip": "/",
+          "blocked": ">",
+          "cancelled": "-",
+          "done": "x",
+        };
+        statusChar = statusMap[updates.status as TodoStatus] || statusChar;
+      }
+
+      // Update metadata
+      for (const [key, value] of Object.entries(updates)) {
+        if (key === "status") continue;
+
+        // Check if metadata exists
+        const metaRegex = new RegExp(`\\[${key}::\\s*([^\\]]+)\\]`);
+        if (metaRegex.test(rest)) {
+          // Update existing
+          rest = rest.replace(metaRegex, `[${key}:: ${value}]`);
+        } else {
+          // Add new metadata before ^id
+          const blockRefMatch = rest.match(/(\s+\^[\w]+)$/);
+          if (blockRefMatch) {
+            rest = rest.substring(0, blockRefMatch.index) +
+              ` [${key}:: ${value}]` + blockRefMatch[0];
+          }
+        }
+      }
+
+      doc.lines[i] = `${prefix}${statusChar}]${spacing}${rest}`;
+      break;
+    }
+  }
+
+  await saveTaskContent(foundTaskId, serializeDocument(doc));
+
+  return { status: "todo_updated" };
+}
+
+async function cmdTodoNext(taskId?: string): Promise<Todo | null> {
+  await purge();
+
+  if (taskId) {
+    // Get next todo for specific task
+    const content = await loadTaskContent(taskId);
+    const { todos } = await parseTaskFile(content);
+
+    // Find first todo that is not done or cancelled, and not blocked (or blocked but dependency resolved)
+    for (const todo of todos) {
+      if (todo.status === "done" || todo.status === "cancelled") continue;
+      if (todo.status === "blocked") {
+        // Check if dependency is resolved
+        const dependsOn = todo.metadata.dependsOn;
+        if (dependsOn) {
+          // For now, we'll skip blocked todos (full dependency resolution would require checking the dependency status)
+          continue;
+        }
+      }
+      return todo;
+    }
+
+    return null;
+  } else {
+    // Get next todo across all active tasks
+    const index = await loadIndex();
+
+    for (const taskId of Object.keys(index.tasks)) {
+      if (index.tasks[taskId].status === "done") continue;
+
+      try {
+        const next = await cmdTodoNext(taskId);
+        if (next) return next;
+      } catch {
+        continue;
+      }
+    }
+
+    return null;
+  }
 }
 
 async function cmdList(
@@ -2819,12 +3255,18 @@ function printUsage(): void {
 
 Commands:
   init                                  Initialize worklog in current directory
-  add [--desc "description"]            Create a new task
+  add [--desc "description"] [--todo "text"]...   Create a new task
   trace <task-id> <message> [options]   Log an entry to a task
   logs <task-id>                        Get task context for checkpoint
   checkpoint <task-id> <changes> <learnings> [options]   Create a checkpoint
   done <task-id> <changes> <learnings>         Complete task with final checkpoint
   list [--all] [options]                List tasks (--all includes completed)
+
+Todo management:
+  todo list [<task-id>]                 List todos (all active tasks or specific task)
+  todo add <task-id> <text>             Add a todo to a task
+  todo set key=value <todo-id>          Update todo (e.g., status=done)
+  todo next [<task-id>]                 Show next available todo
   summary [--since YYYY-MM-DD]          Aggregate all tasks
   import [-p PATH | -b BRANCH] [--rm]   Import tasks from another worktree
 
@@ -2867,6 +3309,7 @@ function parseArgs(args: string[]): {
   subcommand: string | null;
   flags: {
     desc: string | null;
+    todo: string[];
     all: boolean;
     since: string | null;
     timestamp: string | null;
@@ -2890,6 +3333,7 @@ function parseArgs(args: string[]): {
 } {
   const flags = {
     desc: null as string | null,
+    todo: [] as string[],
     all: false,
     since: null as string | null,
     timestamp: null as string | null,
@@ -2918,6 +3362,10 @@ function parseArgs(args: string[]): {
       flags.desc = args[++i];
     } else if (arg.startsWith("--desc=")) {
       flags.desc = arg.slice(7);
+    } else if (arg === "--todo" && i + 1 < args.length) {
+      flags.todo.push(args[++i]);
+    } else if (arg.startsWith("--todo=")) {
+      flags.todo.push(arg.slice(7));
     } else if (arg === "--all") {
       flags.all = true;
     } else if (arg === "--since" && i + 1 < args.length) {
@@ -3045,8 +3493,15 @@ export async function main(args: string[]): Promise<void> {
       }
 
       case "add": {
-        const desc = flags.desc ?? positional[0] ?? "";
-        const output = await cmdAdd(desc);
+        let desc = flags.desc ?? positional[0] ?? "";
+        const todos = flags.todo;
+
+        // If no desc but todos provided, use first todo as desc
+        if (!desc && todos.length > 0) {
+          desc = todos[0];
+        }
+
+        const output = await cmdAdd(desc, todos);
         console.log(flags.json ? JSON.stringify(output) : formatAdd(output));
         break;
       }
@@ -3112,15 +3567,102 @@ export async function main(args: string[]): Promise<void> {
         if (positional.length < 3) {
           throw new WtError(
             "invalid_args",
-            "Usage: wt done <task-id> <changes> <learnings>",
+            "Usage: wt done <task-id> <changes> <learnings> [--force]",
           );
         }
         const output = await cmdDone(
           positional[0],
           positional[1],
           positional[2],
+          flags.force,
         );
         console.log(flags.json ? JSON.stringify(output) : formatStatus(output));
+        break;
+      }
+
+      case "todo": {
+        const subcommand = positional[0];
+
+        switch (subcommand) {
+          case "list": {
+            const taskId = positional[1] || undefined;
+            const output = await cmdTodoList(taskId);
+            console.log(
+              flags.json ? JSON.stringify(output) : formatTodoList(output),
+            );
+            break;
+          }
+
+          case "add": {
+            if (positional.length < 3) {
+              throw new WtError(
+                "invalid_args",
+                "Usage: wl todo add <task-id> <text>",
+              );
+            }
+            const taskId = positional[1];
+            const text = positional.slice(2).join(" ");
+            const output = await cmdTodoAdd(taskId, text);
+            console.log(
+              flags.json ? JSON.stringify(output) : formatTodoAdd(output),
+            );
+            break;
+          }
+
+          case "set": {
+            if (positional.length < 3) {
+              throw new WtError(
+                "invalid_args",
+                "Usage: wl todo set key=value <todo-id>",
+              );
+            }
+
+            // Parse key=value pairs
+            const updates: Record<string, string> = {};
+            let todoId = "";
+
+            for (let i = 1; i < positional.length; i++) {
+              const arg = positional[i];
+              const eqIndex = arg.indexOf("=");
+              if (eqIndex > 0) {
+                const key = arg.substring(0, eqIndex);
+                const value = arg.substring(eqIndex + 1);
+                updates[key] = value;
+              } else {
+                todoId = arg;
+              }
+            }
+
+            if (!todoId) {
+              throw new WtError(
+                "invalid_args",
+                "Missing todo-id in: wl todo set key=value <todo-id>",
+              );
+            }
+
+            const output = await cmdTodoSet(todoId, updates);
+            console.log(
+              flags.json ? JSON.stringify(output) : formatStatus(output),
+            );
+            break;
+          }
+
+          case "next": {
+            const taskId = positional[1] || undefined;
+            const todo = await cmdTodoNext(taskId);
+            console.log(
+              flags.json ? JSON.stringify(todo) : formatTodoNext(todo),
+            );
+            break;
+          }
+
+          default: {
+            throw new WtError(
+              "invalid_args",
+              `Unknown todo subcommand: ${subcommand}. Use: list, add, set, next`,
+            );
+          }
+        }
         break;
       }
 

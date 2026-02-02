@@ -659,6 +659,275 @@ Deno.test("wl: error on task_already_done without force", async () => {
   }
 });
 // ============================================================================
+// TODO management tests
+// ============================================================================
+
+Deno.test("wl: add --todo creates task with TODOs", async () => {
+  const workspace = createTestWorkspace();
+  try {
+    await runCli(["init"], workspace);
+
+    const result = await runCli([
+      "add",
+      "--desc",
+      "Feature X",
+      "--todo",
+      "Analyze code",
+      "--todo",
+      "Write tests",
+      "--json",
+    ], workspace);
+    assertEquals(result.code, 0);
+
+    const { id } = JSON.parse(result.stdout);
+
+    // Verify TODOs were created
+    const listResult = await runCli(["todo", "list", id], workspace);
+    assertEquals(listResult.code, 0);
+    assertStringIncludes(listResult.stdout, "Analyze code");
+    assertStringIncludes(listResult.stdout, "Write tests");
+  } finally {
+    Deno.removeSync(workspace, { recursive: true });
+  }
+});
+
+Deno.test("wl: todo list shows all TODOs", async () => {
+  const workspace = createTestWorkspace();
+  try {
+    await runCli(["init"], workspace);
+
+    await runCli([
+      "add",
+      "--desc",
+      "Task 1",
+      "--todo",
+      "First todo",
+    ], workspace);
+
+    await runCli([
+      "add",
+      "--desc",
+      "Task 2",
+      "--todo",
+      "Second todo",
+    ], workspace);
+
+    const result = await runCli(["todo", "list"], workspace);
+    assertEquals(result.code, 0);
+    assertStringIncludes(result.stdout, "Task 1");
+    assertStringIncludes(result.stdout, "First todo");
+    assertStringIncludes(result.stdout, "Task 2");
+    assertStringIncludes(result.stdout, "Second todo");
+  } finally {
+    Deno.removeSync(workspace, { recursive: true });
+  }
+});
+
+Deno.test("wl: todo list <task-id> shows task TODOs", async () => {
+  const workspace = createTestWorkspace();
+  try {
+    await runCli(["init"], workspace);
+
+    const addResult = await runCli([
+      "add",
+      "--desc",
+      "My task",
+      "--todo",
+      "Todo 1",
+      "--todo",
+      "Todo 2",
+      "--json",
+    ], workspace);
+    const { id } = JSON.parse(addResult.stdout);
+
+    const result = await runCli(["todo", "list", id], workspace);
+    assertEquals(result.code, 0);
+    assertStringIncludes(result.stdout, "Todo 1");
+    assertStringIncludes(result.stdout, "Todo 2");
+  } finally {
+    Deno.removeSync(workspace, { recursive: true });
+  }
+});
+
+Deno.test("wl: todo add adds a TODO to task", async () => {
+  const workspace = createTestWorkspace();
+  try {
+    await runCli(["init"], workspace);
+
+    const addResult = await runCli([
+      "add",
+      "--desc",
+      "Task",
+      "--json",
+    ], workspace);
+    const { id } = JSON.parse(addResult.stdout);
+
+    const result = await runCli([
+      "todo",
+      "add",
+      id,
+      "New todo item",
+    ], workspace);
+    assertEquals(result.code, 0);
+
+    // Verify TODO was added
+    const listResult = await runCli(["todo", "list", id], workspace);
+    assertStringIncludes(listResult.stdout, "New todo item");
+  } finally {
+    Deno.removeSync(workspace, { recursive: true });
+  }
+});
+
+Deno.test("wl: todo set updates TODO status", async () => {
+  const workspace = createTestWorkspace();
+  try {
+    await runCli(["init"], workspace);
+
+    const addResult = await runCli([
+      "add",
+      "--desc",
+      "Task",
+      "--todo",
+      "Test todo",
+      "--json",
+    ], workspace);
+    const { id } = JSON.parse(addResult.stdout);
+
+    // Get todo ID
+    const listResult = await runCli(["todo", "list", id, "--json"], workspace);
+    const listJson = JSON.parse(listResult.stdout);
+    const todoId = listJson.todos[0].id;
+
+    // Update status
+    const result = await runCli([
+      "todo",
+      "set",
+      "status=done",
+      todoId,
+    ], workspace);
+    assertEquals(result.code, 0);
+
+    // Verify status changed
+    const verifyResult = await runCli(["todo", "list", id], workspace);
+    assertStringIncludes(verifyResult.stdout, "[x]");
+  } finally {
+    Deno.removeSync(workspace, { recursive: true });
+  }
+});
+
+Deno.test("wl: todo next shows next available TODO", async () => {
+  const workspace = createTestWorkspace();
+  try {
+    await runCli(["init"], workspace);
+
+    const addResult = await runCli([
+      "add",
+      "--desc",
+      "Task",
+      "--todo",
+      "First",
+      "--todo",
+      "Second",
+      "--json",
+    ], workspace);
+    const { id } = JSON.parse(addResult.stdout);
+
+    const result = await runCli(["todo", "next", id], workspace);
+    assertEquals(result.code, 0);
+    assertStringIncludes(result.stdout, "First");
+  } finally {
+    Deno.removeSync(workspace, { recursive: true });
+  }
+});
+
+Deno.test("wl: done fails if pending TODOs exist", async () => {
+  const workspace = createTestWorkspace();
+  try {
+    await runCli(["init"], workspace);
+
+    const addResult = await runCli([
+      "add",
+      "--desc",
+      "Task",
+      "--todo",
+      "Pending todo",
+      "--json",
+    ], workspace);
+    const { id } = JSON.parse(addResult.stdout);
+
+    await runCli(["trace", id, "Work done"], workspace);
+
+    const result = await runCli([
+      "done",
+      id,
+      "Changes",
+      "Learnings",
+    ], workspace);
+    assertEquals(result.code !== 0, true);
+    assertStringIncludes(result.stderr, "pending");
+  } finally {
+    Deno.removeSync(workspace, { recursive: true });
+  }
+});
+
+Deno.test("wl: done --force completes task with pending TODOs", async () => {
+  const workspace = createTestWorkspace();
+  try {
+    await runCli(["init"], workspace);
+
+    const addResult = await runCli([
+      "add",
+      "--desc",
+      "Task",
+      "--todo",
+      "Pending todo",
+      "--json",
+    ], workspace);
+    const { id } = JSON.parse(addResult.stdout);
+
+    await runCli(["trace", id, "Work done"], workspace);
+
+    const result = await runCli([
+      "done",
+      id,
+      "Changes",
+      "Learnings",
+      "--force",
+    ], workspace);
+    assertEquals(result.code, 0);
+  } finally {
+    Deno.removeSync(workspace, { recursive: true });
+  }
+});
+
+Deno.test("wl: todo list --json outputs valid JSON", async () => {
+  const workspace = createTestWorkspace();
+  try {
+    await runCli(["init"], workspace);
+
+    const addResult = await runCli([
+      "add",
+      "--desc",
+      "Task",
+      "--todo",
+      "Todo 1",
+      "--json",
+    ], workspace);
+    const { id } = JSON.parse(addResult.stdout);
+
+    const result = await runCli(["todo", "list", id, "--json"], workspace);
+    assertEquals(result.code, 0);
+    const json = JSON.parse(result.stdout);
+    assertEquals(Array.isArray(json.todos), true);
+    assertEquals(json.todos.length > 0, true);
+    assertEquals(typeof json.todos[0].id, "string");
+    assertEquals(typeof json.todos[0].text, "string");
+    assertEquals(typeof json.todos[0].status, "string");
+  } finally {
+    Deno.removeSync(workspace, { recursive: true });
+  }
+});
+// ============================================================================
 // Scopes subcommands tests
 // ============================================================================
 
