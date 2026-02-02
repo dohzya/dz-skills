@@ -1,6 +1,6 @@
 ---
 name: worklog
-description: Track work progress during development sessions. Activates when .worklog/ exists OR user says "track this", ">track", "let's track". Maintains a chronological worklog with on-demand consolidation via checkpoints.
+description: Track work progress during development sessions. Activates when .worklog/ exists OR user says "track this", ">track", "let's track", "worktask", "work on worktask". Maintains a chronological worklog with on-demand consolidation via checkpoints.
 ---
 
 # Worklog
