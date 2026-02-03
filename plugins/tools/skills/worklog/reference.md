@@ -13,6 +13,7 @@ wl logs <id>                                     # Get context (last checkpoint 
 wl checkpoint <id> "changes" "learnings"         # Create checkpoint
 wl done <id> "changes" "learnings"               # Final checkpoint + close task
 wl list [--all] [-p PATH]                        # List active tasks (--all includes done <30d)
+wl meta <id> [<key> <value>]                     # View or set task metadata
 wl summary [--since YYYY-MM-DD]                  # Aggregate all tasks
 wl import [-p PATH | -b BRANCH] [--rm]           # Import from other worktree
 ```
@@ -334,6 +335,94 @@ Each TODO has:
 - **Text**: The TODO description
 - **Metadata** (optional): Custom key-value pairs like `[dependsOn:: xyz]`, `[due:: date]`
 - **Block reference** (^id): For Obsidian cross-referencing with `[[task-id#^todo-id]]`
+
+## Task IDs
+
+Task IDs use UUID base36 encoding to eliminate collision risks in parallel
+execution and multi-worktree scenarios.
+
+### ID Generation
+
+- **Full ID**: UUID converted to base36 (25 characters, case-insensitive)
+- **Short ID**: 5 characters minimum (displayed in most commands)
+- **Prefix resolution**: Any unambiguous prefix can be used (like git)
+
+Examples:
+
+```bash
+# Full ID: acjold3x5q1m8h2k9n7p0r4w6
+# Short ID: acjold
+# You can use any prefix: acjo, acjol, acjold, etc.
+
+wl trace acjold "Working on feature"  # Uses prefix
+wl logs acj "message"                  # Works if unambiguous
+```
+
+### Prefix Resolution
+
+If multiple tasks share the same prefix, worklog shows an error with details:
+
+```
+Error: Ambiguous task ID prefix "ac"
+Matches:
+  acjold  "Implement feature X"  2026-02-03 09:15
+  actb2w  "Fix bug Y"  2026-02-03 10:30
+```
+
+### Backward Compatibility
+
+Old date-based IDs (e.g., `250116a`) are still supported and resolved correctly.
+
+## Task Metadata
+
+Tasks can have custom metadata for traceability (commit SHA, PR number, author,
+etc.).
+
+### Viewing metadata
+
+```bash
+wl meta <task-id>
+```
+
+Output:
+
+```
+Task: acjold "Implement feature X"
+Metadata:
+  commit: a1b2c3d4e5f6
+  pr: 123
+  author: alice
+```
+
+### Setting metadata
+
+```bash
+# Set a single key-value pair
+wl meta <task-id> <key> <value>
+
+# Example
+wl meta acjold commit a1b2c3d4e5f6
+wl meta acjold pr 123
+```
+
+### Deleting metadata
+
+```bash
+wl meta <task-id> --delete <key>
+
+# Example
+wl meta acjold --delete pr
+```
+
+### Common metadata keys
+
+- `commit`: Git commit SHA
+- `pr`: Pull request number
+- `author`: Person who worked on the task
+- `branch`: Git branch name
+- `ticket`: Issue/ticket reference
+
+Metadata is stored in the task's YAML frontmatter and preserved across imports.
 
 ## File structure
 

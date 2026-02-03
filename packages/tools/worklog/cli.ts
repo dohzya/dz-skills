@@ -291,23 +291,142 @@ function generateTodoId(): string {
   return id;
 }
 
-async function generateTaskId(): Promise<string> {
-  const today = new Date();
-  const year = String(today.getFullYear()).slice(2);
-  const month = String(today.getMonth() + 1).padStart(2, "0");
-  const day = String(today.getDate()).padStart(2, "0");
-  const prefix = `${year}${month}${day}`; // YYMMDD
+// Convert UUID to base36 (case-insensitive friendly)
+function uuidToBase36(uuid: string): string {
+  // Remove hyphens and convert to BigInt
+  const hex = uuid.replace(/-/g, "");
+  const bigInt = BigInt("0x" + hex);
 
+  // Convert to base36
+  const base36Chars = "0123456789abcdefghijklmnopqrstuvwxyz";
+  let result = "";
+  let n = bigInt;
+
+  while (n > 0n) {
+    result = base36Chars[Number(n % 36n)] + result;
+    n = n / 36n;
+  }
+
+  // Pad to ensure consistent length (25 chars for 128-bit UUID)
+  return result.padStart(25, "0");
+}
+
+// Resolve ID prefix to full ID
+function _resolveId(prefix: string, ids: string[]): string {
+  const matches = ids.filter((id) =>
+    id.toLowerCase().startsWith(prefix.toLowerCase())
+  );
+
+  if (matches.length === 0) {
+    throw new WtError(
+      "task_not_found",
+      `No ID found matching prefix: ${prefix}`,
+    );
+  }
+
+  if (matches.length > 1) {
+    throw new WtError(
+      "invalid_args",
+      `Ambiguous ID prefix '${prefix}' matches ${matches.length} IDs: ${
+        matches.slice(0, 5).join(", ")
+      }${matches.length > 5 ? "..." : ""}`,
+    );
+  }
+
+  return matches[0];
+}
+
+// Get shortest unambiguous prefix for display
+function getShortId(id: string, allIds: string[]): string {
+  const minLen = 5;
+  let len = minLen;
+
+  while (len < id.length) {
+    const prefix = id.slice(0, len);
+    const conflicts = allIds.filter((other) =>
+      other !== id && other.toLowerCase().startsWith(prefix.toLowerCase())
+    );
+
+    if (conflicts.length === 0) {
+      // Add 1 char margin, but don't exceed id length
+      return id.slice(0, Math.min(len + 1, id.length));
+    }
+    len++;
+  }
+
+  return id;
+}
+
+// Resolve task ID prefix to full ID with detailed error message
+async function resolveTaskId(prefix: string): Promise<string> {
   const index = await loadIndex();
-  const existing = Object.keys(index.tasks)
-    .filter((id) => id.startsWith(prefix))
-    .map((id) => id.slice(6)) // Extract suffix
-    .sort();
+  const allIds = Object.keys(index.tasks);
+  const matches = allIds.filter((id) =>
+    id.toLowerCase().startsWith(prefix.toLowerCase())
+  );
 
-  if (existing.length === 0) return `${prefix}a`;
+  if (matches.length === 0) {
+    throw new WtError(
+      "task_not_found",
+      `No task found matching prefix: ${prefix}`,
+    );
+  }
 
-  const last = existing[existing.length - 1];
-  return `${prefix}${incrementLetter(last)}`;
+  if (matches.length > 1) {
+    // Build detailed error message with short IDs and descriptions
+    const lines = [
+      `Ambiguous task ID prefix '${prefix}' matches ${matches.length} tasks:`,
+    ];
+    for (const id of matches.slice(0, 10)) {
+      const shortId = getShortId(id, allIds);
+      const desc = index.tasks[id]?.desc || "(no description)";
+      lines.push(`  ${shortId}  "${desc}"`);
+    }
+    if (matches.length > 10) {
+      lines.push(`  ... and ${matches.length - 10} more`);
+    }
+    throw new WtError("invalid_args", lines.join("\n"));
+  }
+
+  return matches[0];
+}
+
+// Resolve todo ID prefix to full ID with detailed error message
+function resolveTodoId(prefix: string, todos: Todo[]): string {
+  const allIds = todos.map((t) => t.id);
+  const matches = todos.filter((t) =>
+    t.id.toLowerCase().startsWith(prefix.toLowerCase())
+  );
+
+  if (matches.length === 0) {
+    throw new WtError(
+      "todo_not_found",
+      `No todo found matching prefix: ${prefix}`,
+    );
+  }
+
+  if (matches.length > 1) {
+    // Build detailed error message with short IDs and descriptions
+    const lines = [
+      `Ambiguous todo ID prefix '${prefix}' matches ${matches.length} todos:`,
+    ];
+    for (const todo of matches.slice(0, 10)) {
+      const shortId = getShortId(todo.id, allIds);
+      lines.push(`  ${shortId}  "${todo.text}"`);
+    }
+    if (matches.length > 10) {
+      lines.push(`  ... and ${matches.length - 10} more`);
+    }
+    throw new WtError("invalid_args", lines.join("\n"));
+  }
+
+  return matches[0].id;
+}
+
+function generateTaskIdBase62(): string {
+  // Generate UUID and convert to base36 (no collision check needed with UUID)
+  const uuid = crypto.randomUUID();
+  return uuidToBase36(uuid);
 }
 
 // ============================================================================
@@ -884,9 +1003,17 @@ async function purge(): Promise<void> {
 // ============================================================================
 
 async function autoInit(): Promise<void> {
-  if (!(await exists(WORKLOG_DIR))) {
+  const worklogExists = await exists(WORKLOG_DIR);
+  const indexExists = await exists(INDEX_FILE);
+
+  if (!worklogExists) {
     await Deno.mkdir(TASKS_DIR, { recursive: true });
     await saveIndex({ tasks: {} });
+  } else if (!indexExists) {
+    throw new WtError(
+      "not_initialized",
+      "Worklog directory exists but is not properly initialized. Please run 'wl init' or remove .worklog directory.",
+    );
   }
 }
 
@@ -1077,6 +1204,14 @@ function formatTodoList(output: TodoListOutput): string {
     "done": "x",
   };
 
+  // Calculate short IDs for all todos and tasks
+  const allTodoIds = output.todos.map((t) => t.id);
+  const allTaskIds = Array.from(
+    new Set(
+      output.todos.map((t) => t.metadata.taskId).filter(Boolean) as string[],
+    ),
+  );
+
   // Group todos by task if taskId is present in metadata
   const byTask = new Map<string, { desc: string; todos: Todo[] }>();
   const ungrouped: Todo[] = [];
@@ -1100,10 +1235,12 @@ function formatTodoList(output: TodoListOutput): string {
   // Format grouped todos
   if (byTask.size > 0) {
     for (const [taskId, { desc, todos }] of byTask) {
-      lines.push(`\n${taskId}: ${desc}`);
+      const shortTaskId = getShortId(taskId, allTaskIds);
+      lines.push(`\n${shortTaskId}: ${desc}`);
       for (const todo of todos) {
         const statusChar = statusChars[todo.status];
-        let line = `  ${todo.id} [${statusChar}] ${todo.text}`;
+        const shortTodoId = getShortId(todo.id, allTodoIds);
+        let line = `  ${shortTodoId} [${statusChar}] ${todo.text}`;
 
         // Add metadata (excluding taskId and taskDesc which are already shown)
         const metadata = Object.entries(todo.metadata)
@@ -1123,7 +1260,8 @@ function formatTodoList(output: TodoListOutput): string {
   // Format ungrouped todos
   for (const todo of ungrouped) {
     const statusChar = statusChars[todo.status];
-    let line = `${todo.id} [${statusChar}] ${todo.text}`;
+    const shortTodoId = getShortId(todo.id, allTodoIds);
+    let line = `${shortTodoId} [${statusChar}] ${todo.text}`;
 
     const metadata = Object.entries(todo.metadata)
       .map(([k, v]) => `[${k}:: ${v}]`)
@@ -1181,6 +1319,17 @@ function formatStatus(output: StatusOutput): string {
   return output.status.replace(/_/g, " ");
 }
 
+function formatMeta(output: { metadata: Record<string, string> }): string {
+  if (Object.keys(output.metadata).length === 0) {
+    return "(no metadata)";
+  }
+  const lines: string[] = [];
+  for (const [key, value] of Object.entries(output.metadata)) {
+    lines.push(`${key}: ${value}`);
+  }
+  return lines.join("\n");
+}
+
 function formatLogs(output: LogsOutput): string {
   const lines: string[] = [];
   lines.push(`task: ${output.task}`);
@@ -1218,10 +1367,19 @@ function formatList(output: ListOutput): string {
     return "no tasks";
   }
 
-  return output.tasks
+  // Sort tasks by creation date (newest first)
+  const sortedTasks = [...output.tasks].sort((a, b) =>
+    new Date(b.created).getTime() - new Date(a.created).getTime()
+  );
+
+  // Calculate short IDs
+  const allIds = sortedTasks.map((t) => t.id);
+
+  return sortedTasks
     .map((t) => {
+      const shortId = getShortId(t.id, allIds);
       const prefix = t.scopePrefix ? `[${t.scopePrefix}]  ` : "";
-      return `${prefix}${t.id}  ${t.status}  "${t.desc}"  ${t.created}`;
+      return `${prefix}${shortId}  ${t.status}  "${t.desc}"  ${t.created}`;
     })
     .join("\n");
 }
@@ -1345,11 +1503,15 @@ async function cmdInit(): Promise<StatusOutput> {
   return { status: "initialized" };
 }
 
-async function cmdAdd(desc: string, todos: string[] = []): Promise<AddOutput> {
+async function cmdAdd(
+  desc: string,
+  todos: string[] = [],
+  metadata?: Record<string, string>,
+): Promise<AddOutput> {
   await autoInit();
   await purge();
 
-  const id = await generateTaskId();
+  const id = generateTaskIdBase62();
   const uid = crypto.randomUUID();
   const now = getLocalISOString();
 
@@ -1363,6 +1525,20 @@ async function cmdAdd(desc: string, todos: string[] = []): Promise<AddOutput> {
     }
   }
 
+  // Build metadata section if provided
+  let metadataYaml = "";
+  if (metadata && Object.keys(metadata).length > 0) {
+    metadataYaml = "\nmetadata:\n";
+    for (const [key, value] of Object.entries(metadata)) {
+      // Escape value if it contains special YAML characters
+      const escapedValue =
+        value.includes(":") || value.includes("#") || value.includes('"')
+          ? `"${value.replace(/"/g, '\\"')}"`
+          : value;
+      metadataYaml += `  ${key}: ${escapedValue}\n`;
+    }
+  }
+
   const content = `---
 id: ${id}
 uid: ${uid}
@@ -1371,7 +1547,7 @@ status: active
 created: "${now}"
 done_at: null
 last_checkpoint: null
-has_uncheckpointed_entries: false
+has_uncheckpointed_entries: false${metadataYaml}
 ---
 
 # Entries
@@ -1390,7 +1566,11 @@ has_uncheckpointed_entries: false
   };
   await saveIndex(index);
 
-  return { id };
+  // Calculate short ID for display
+  const allIds = Object.keys(index.tasks);
+  const shortId = getShortId(id, allIds);
+
+  return { id: shortId };
 }
 
 async function cmdTrace(
@@ -1400,6 +1580,9 @@ async function cmdTrace(
   force?: boolean,
 ): Promise<TraceOutput> {
   await purge();
+
+  // Resolve task ID prefix
+  taskId = await resolveTaskId(taskId);
 
   const content = await loadTaskContent(taskId);
   const { meta } = await parseTaskFile(content);
@@ -1487,6 +1670,9 @@ async function cmdTrace(
 async function cmdLogs(taskId: string): Promise<LogsOutput> {
   await purge();
 
+  // Resolve task ID prefix
+  taskId = await resolveTaskId(taskId);
+
   const content = await loadTaskContent(taskId);
   const { meta, entries, checkpoints } = await parseTaskFile(content);
 
@@ -1512,6 +1698,9 @@ async function cmdCheckpoint(
   force?: boolean,
 ): Promise<StatusOutput> {
   await purge();
+
+  // Resolve task ID prefix
+  taskId = await resolveTaskId(taskId);
 
   const content = await loadTaskContent(taskId);
   const { meta, entries } = await parseTaskFile(content);
@@ -1596,6 +1785,9 @@ async function cmdDone(
 ): Promise<StatusOutput> {
   await purge();
 
+  // Resolve task ID prefix
+  taskId = await resolveTaskId(taskId);
+
   // Check for pending todos (unless force is enabled)
   if (!force) {
     const content = await loadTaskContent(taskId);
@@ -1643,10 +1835,54 @@ async function cmdDone(
   return { status: "task_completed" };
 }
 
+async function cmdMeta(
+  taskId: string,
+  key?: string,
+  value?: string,
+  deleteKey?: string,
+): Promise<{ metadata: Record<string, string> }> {
+  await purge();
+
+  // Resolve task ID prefix
+  taskId = await resolveTaskId(taskId);
+
+  const content = await loadTaskContent(taskId);
+  const doc = await parseDocument(content);
+  const yamlContent = getFrontmatterContent(doc);
+  const frontmatter = parseFrontmatter(yamlContent) as unknown as TaskMeta;
+
+  // Initialize metadata if not present
+  if (!frontmatter.metadata) {
+    frontmatter.metadata = {};
+  }
+
+  // Delete key if requested
+  if (deleteKey) {
+    delete frontmatter.metadata[deleteKey];
+  }
+
+  // Set/update key-value if provided
+  if (key && value !== undefined) {
+    frontmatter.metadata[key] = value;
+  }
+
+  // Save changes
+  setFrontmatter(
+    doc,
+    stringifyFrontmatter(frontmatter as unknown as Record<string, unknown>),
+  );
+  await saveTaskContent(taskId, serializeDocument(doc));
+
+  return { metadata: frontmatter.metadata };
+}
+
 async function cmdTodoList(taskId?: string): Promise<TodoListOutput> {
   await purge();
 
   if (taskId) {
+    // Resolve task ID prefix
+    taskId = await resolveTaskId(taskId);
+
     // List todos for specific task
     const content = await loadTaskContent(taskId);
     const { todos } = await parseTaskFile(content);
@@ -1691,6 +1927,9 @@ async function cmdTodoAdd(
 ): Promise<TodoAddOutput> {
   await purge();
 
+  // Resolve task ID prefix
+  taskId = await resolveTaskId(taskId);
+
   const content = await loadTaskContent(taskId);
   const doc = await parseDocument(content);
 
@@ -1734,20 +1973,18 @@ async function cmdTodoSet(
 ): Promise<StatusOutput> {
   await purge();
 
-  // Find which task contains this todo
+  // Collect all todos to resolve prefix
   const index = await loadIndex();
-  let foundTaskId: string | null = null;
-  let foundTodo: Todo | null = null;
+  const allTodos: Todo[] = [];
+  const todoToTask = new Map<string, string>();
 
   for (const taskId of Object.keys(index.tasks)) {
     try {
       const content = await loadTaskContent(taskId);
       const { todos } = await parseTaskFile(content);
-      const todo = todos.find((t) => t.id === todoId);
-      if (todo) {
-        foundTaskId = taskId;
-        foundTodo = todo;
-        break;
+      for (const todo of todos) {
+        allTodos.push(todo);
+        todoToTask.set(todo.id, taskId);
       }
     } catch {
       // Task file might not exist, skip
@@ -1755,7 +1992,11 @@ async function cmdTodoSet(
     }
   }
 
-  if (!foundTaskId || !foundTodo) {
+  // Resolve todo ID prefix
+  const resolvedTodoId = resolveTodoId(todoId, allTodos);
+  const foundTaskId = todoToTask.get(resolvedTodoId);
+
+  if (!foundTaskId) {
     throw new WtError("todo_not_found", `Todo ${todoId} not found`);
   }
 
@@ -1772,7 +2013,7 @@ async function cmdTodoSet(
 
   for (let i = todosSection.line + 1; i < todosEnd; i++) {
     const line = doc.lines[i];
-    if (line.includes(`^${todoId}`)) {
+    if (line.includes(`^${resolvedTodoId}`)) {
       // Parse the line
       const todoMatch = line.match(/^(-\s*\[)(.)\](\s*)(.+)$/);
       if (!todoMatch) continue;
@@ -1827,6 +2068,9 @@ async function cmdTodoNext(taskId?: string): Promise<Todo | null> {
   await purge();
 
   if (taskId) {
+    // Resolve task ID prefix
+    taskId = await resolveTaskId(taskId);
+
     // Get next todo for specific task
     const content = await loadTaskContent(taskId);
     const { todos } = await parseTaskFile(content);
@@ -3064,15 +3308,20 @@ async function cmdScopesAssign(
   let merged = 0;
   const errors: Array<{ taskId: string; error: string }> = [];
 
-  for (const taskId of taskIds) {
+  for (const taskIdPrefix of taskIds) {
     try {
       // Find task in any scope
-      const sourceWorklog = await findTaskInScopes(taskId, scopes);
+      const found = await findTaskInScopes(taskIdPrefix, scopes);
 
-      if (!sourceWorklog) {
-        errors.push({ taskId, error: "Task not found in any scope" });
+      if (!found) {
+        errors.push({
+          taskId: taskIdPrefix,
+          error: "Task not found in any scope",
+        });
         continue;
       }
+
+      const { worklog: sourceWorklog, taskId } = found;
 
       // If already in target scope, skip
       if (sourceWorklog === targetWorklog) {
@@ -3145,7 +3394,7 @@ async function cmdScopesAssign(
       }
     } catch (error) {
       errors.push({
-        taskId,
+        taskId: taskIdPrefix,
         error: error instanceof Error ? error.message : String(error),
       });
     }
@@ -3226,16 +3475,19 @@ async function loadIndexFrom(worklogPath: string): Promise<Index> {
 }
 
 async function findTaskInScopes(
-  taskId: string,
+  taskIdPrefix: string,
   scopes: DiscoveredScope[],
-): Promise<string | null> {
+): Promise<{ worklog: string; taskId: string } | null> {
+  // Collect all tasks from all scopes
+  const allTasks: Array<{ scope: string; taskId: string }> = [];
+
   for (const scope of scopes) {
     const indexPath = `${scope.absolutePath}/index.json`;
     if (await exists(indexPath)) {
       try {
         const index = await loadIndexFrom(scope.absolutePath);
-        if (index.tasks[taskId]) {
-          return scope.absolutePath;
+        for (const id of Object.keys(index.tasks)) {
+          allTasks.push({ scope: scope.absolutePath, taskId: id });
         }
       } catch {
         // Skip scopes that can't be loaded
@@ -3243,6 +3495,27 @@ async function findTaskInScopes(
       }
     }
   }
+
+  // Try exact match first
+  for (const task of allTasks) {
+    if (task.taskId === taskIdPrefix) {
+      return { worklog: task.scope, taskId: task.taskId };
+    }
+  }
+
+  // Try prefix resolution across all scopes
+  const allIds = allTasks.map((t) => t.taskId);
+  try {
+    const resolvedId = _resolveId(taskIdPrefix, allIds);
+    const task = allTasks.find((t) => t.taskId === resolvedId);
+    if (task) {
+      return { worklog: task.scope, taskId: task.taskId };
+    }
+  } catch {
+    // Prefix resolution failed (ambiguous or not found)
+    return null;
+  }
+
   return null;
 }
 
@@ -3310,6 +3583,8 @@ function parseArgs(args: string[]): {
   flags: {
     desc: string | null;
     todo: string[];
+    meta: Record<string, string>;
+    delete: string | null;
     all: boolean;
     since: string | null;
     timestamp: string | null;
@@ -3334,6 +3609,8 @@ function parseArgs(args: string[]): {
   const flags = {
     desc: null as string | null,
     todo: [] as string[],
+    meta: {} as Record<string, string>,
+    delete: null as string | null,
     all: false,
     since: null as string | null,
     timestamp: null as string | null,
@@ -3366,6 +3643,26 @@ function parseArgs(args: string[]): {
       flags.todo.push(args[++i]);
     } else if (arg.startsWith("--todo=")) {
       flags.todo.push(arg.slice(7));
+    } else if (arg === "--meta" && i + 1 < args.length) {
+      const metaValue = args[++i];
+      const eqIndex = metaValue.indexOf("=");
+      if (eqIndex > 0) {
+        const key = metaValue.slice(0, eqIndex);
+        const value = metaValue.slice(eqIndex + 1);
+        flags.meta[key] = value;
+      }
+    } else if (arg.startsWith("--meta=")) {
+      const metaValue = arg.slice(7);
+      const eqIndex = metaValue.indexOf("=");
+      if (eqIndex > 0) {
+        const key = metaValue.slice(0, eqIndex);
+        const value = metaValue.slice(eqIndex + 1);
+        flags.meta[key] = value;
+      }
+    } else if (arg === "--delete" && i + 1 < args.length) {
+      flags.delete = args[++i];
+    } else if (arg.startsWith("--delete=")) {
+      flags.delete = arg.slice(9);
     } else if (arg === "--all") {
       flags.all = true;
     } else if (arg === "--since" && i + 1 < args.length) {
@@ -3467,7 +3764,15 @@ export async function main(args: string[]): Promise<void> {
   const gitRoot = await findGitRoot(cwd);
 
   // Commands that need scope resolution
-  const needsScopeResolution = ["add", "trace", "logs", "checkpoint", "done"]
+  const needsScopeResolution = [
+    "add",
+    "trace",
+    "logs",
+    "checkpoint",
+    "done",
+    "meta",
+    "todo",
+  ]
     .includes(
       command,
     );
@@ -3501,7 +3806,10 @@ export async function main(args: string[]): Promise<void> {
           desc = todos[0];
         }
 
-        const output = await cmdAdd(desc, todos);
+        const metadata = Object.keys(flags.meta).length > 0
+          ? flags.meta
+          : undefined;
+        const output = await cmdAdd(desc, todos, metadata);
         console.log(flags.json ? JSON.stringify(output) : formatAdd(output));
         break;
       }
@@ -3577,6 +3885,26 @@ export async function main(args: string[]): Promise<void> {
           flags.force,
         );
         console.log(flags.json ? JSON.stringify(output) : formatStatus(output));
+        break;
+      }
+
+      case "meta": {
+        if (positional.length < 1) {
+          throw new WtError(
+            "invalid_args",
+            "Usage: wl meta <task-id> [<key> <value>] [--delete <key>]",
+          );
+        }
+        const taskId = positional[0];
+        const key = positional[1];
+        const value = positional[2];
+        const output = await cmdMeta(
+          taskId,
+          key,
+          value,
+          flags.delete ?? undefined,
+        );
+        console.log(flags.json ? JSON.stringify(output) : formatMeta(output));
         break;
       }
 

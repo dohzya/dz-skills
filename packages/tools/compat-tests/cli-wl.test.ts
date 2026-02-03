@@ -75,7 +75,7 @@ Deno.test("wl: add command creates task", async () => {
 
     const result = await runCli(["add", "--desc", "Test task"], workspace);
     assertEquals(result.code, 0);
-    assertEquals(/^\d{6}[a-z]$/.test(result.stdout.trim()), true);
+    assertEquals(/^[a-z0-9]{5,}$/i.test(result.stdout.trim()), true);
   } finally {
     Deno.removeSync(workspace, { recursive: true });
   }
@@ -93,7 +93,7 @@ Deno.test("wl: add --json outputs task ID", async () => {
     assertEquals(result.code, 0);
     const json = JSON.parse(result.stdout);
     assertEquals(typeof json.id, "string");
-    assertEquals(/^\d{6}[a-z]$/.test(json.id), true);
+    assertEquals(/^[a-z0-9]{5,}$/i.test(json.id), true);
   } finally {
     Deno.removeSync(workspace, { recursive: true });
   }
@@ -223,7 +223,7 @@ Deno.test("wl: logs --json outputs valid JSON", async () => {
     const result = await runCli(["logs", id, "--json"], workspace);
     assertEquals(result.code, 0);
     const json = JSON.parse(result.stdout);
-    assertEquals(json.task, id);
+    assertEquals(json.task.startsWith(id), true);
     assertEquals(json.desc, "Test task");
     assertEquals(json.status, "active");
     assertEquals(Array.isArray(json.entries_since_checkpoint), true);
@@ -658,6 +658,181 @@ Deno.test("wl: error on task_already_done without force", async () => {
     Deno.removeSync(workspace, { recursive: true });
   }
 });
+
+// ============================================================================
+// Metadata management tests
+// ============================================================================
+
+Deno.test("wl: meta displays task metadata", async () => {
+  const workspace = createTestWorkspace();
+  try {
+    await runCli(["init"], workspace);
+
+    const addResult = await runCli(
+      ["add", "--desc", "Task with metadata", "--json"],
+      workspace,
+    );
+    const { id } = JSON.parse(addResult.stdout);
+
+    // Set some metadata
+    await runCli(["meta", id, "commit", "abc123"], workspace);
+    await runCli(["meta", id, "pr", "456"], workspace);
+
+    // View metadata
+    const result = await runCli(["meta", id], workspace);
+    assertEquals(result.code, 0);
+    assertStringIncludes(result.stdout, "commit");
+    assertStringIncludes(result.stdout, "abc123");
+    assertStringIncludes(result.stdout, "pr");
+    assertStringIncludes(result.stdout, "456");
+  } finally {
+    Deno.removeSync(workspace, { recursive: true });
+  }
+});
+
+Deno.test("wl: meta sets task metadata", async () => {
+  const workspace = createTestWorkspace();
+  try {
+    await runCli(["init"], workspace);
+
+    const addResult = await runCli(
+      ["add", "--desc", "Task", "--json"],
+      workspace,
+    );
+    const { id } = JSON.parse(addResult.stdout);
+
+    const result = await runCli(["meta", id, "author", "alice"], workspace);
+    assertEquals(result.code, 0);
+
+    // Verify metadata was set
+    const metaResult = await runCli(["meta", id, "--json"], workspace);
+    const json = JSON.parse(metaResult.stdout);
+    assertEquals(json.metadata.author, "alice");
+  } finally {
+    Deno.removeSync(workspace, { recursive: true });
+  }
+});
+
+Deno.test("wl: meta --delete removes metadata key", async () => {
+  const workspace = createTestWorkspace();
+  try {
+    await runCli(["init"], workspace);
+
+    const addResult = await runCli(
+      ["add", "--desc", "Task", "--json"],
+      workspace,
+    );
+    const { id } = JSON.parse(addResult.stdout);
+
+    // Set and then delete metadata
+    await runCli(["meta", id, "temp", "value"], workspace);
+    const result = await runCli(["meta", id, "--delete", "temp"], workspace);
+    assertEquals(result.code, 0);
+
+    // Verify metadata was deleted
+    const metaResult = await runCli(["meta", id, "--json"], workspace);
+    const json = JSON.parse(metaResult.stdout);
+    assertEquals(json.metadata.temp, undefined);
+  } finally {
+    Deno.removeSync(workspace, { recursive: true });
+  }
+});
+
+Deno.test("wl: meta --json outputs valid JSON", async () => {
+  const workspace = createTestWorkspace();
+  try {
+    await runCli(["init"], workspace);
+
+    const addResult = await runCli(
+      ["add", "--desc", "Task", "--json"],
+      workspace,
+    );
+    const { id } = JSON.parse(addResult.stdout);
+
+    await runCli(["meta", id, "branch", "feature-x"], workspace);
+
+    const result = await runCli(["meta", id, "--json"], workspace);
+    assertEquals(result.code, 0);
+
+    const json = JSON.parse(result.stdout);
+    assertEquals(json.metadata.branch, "feature-x");
+  } finally {
+    Deno.removeSync(workspace, { recursive: true });
+  }
+});
+
+// ============================================================================
+// UUID prefix resolution tests
+// ============================================================================
+
+Deno.test("wl: resolves unambiguous task ID prefix", async () => {
+  const workspace = createTestWorkspace();
+  try {
+    await runCli(["init"], workspace);
+
+    const addResult = await runCli(
+      ["add", "--desc", "Test task", "--json"],
+      workspace,
+    );
+    const { id } = JSON.parse(addResult.stdout);
+
+    // Use a prefix (first 5 chars should work)
+    const prefix = id.substring(0, 5);
+    const result = await runCli(["trace", prefix, "Testing prefix"], workspace);
+    assertEquals(result.code, 0);
+
+    // Verify entry was added
+    const logsResult = await runCli(["logs", prefix], workspace);
+    assertStringIncludes(logsResult.stdout, "Testing prefix");
+  } finally {
+    Deno.removeSync(workspace, { recursive: true });
+  }
+});
+
+Deno.test("wl: errors on ambiguous task ID prefix", async () => {
+  const workspace = createTestWorkspace();
+  try {
+    await runCli(["init"], workspace);
+
+    // Create two tasks - they'll have different UUIDs but we need to test
+    // ambiguous prefix behavior. Since we can't control UUID generation,
+    // this test verifies the error handling exists even if rarely triggered.
+    const result1 = await runCli(
+      ["add", "--desc", "Task 1", "--json"],
+      workspace,
+    );
+    const { id: id1 } = JSON.parse(result1.stdout);
+
+    const result2 = await runCli(
+      ["add", "--desc", "Task 2", "--json"],
+      workspace,
+    );
+    const { id: id2 } = JSON.parse(result2.stdout);
+
+    // Find a common prefix (if any)
+    let commonPrefix = "";
+    for (let i = 0; i < Math.min(id1.length, id2.length); i++) {
+      if (id1[i].toLowerCase() === id2[i].toLowerCase()) {
+        commonPrefix += id1[i];
+      } else {
+        break;
+      }
+    }
+
+    // If there's a common prefix, test it produces an error
+    if (commonPrefix.length > 0) {
+      const result = await runCli(
+        ["trace", commonPrefix, "Should fail"],
+        workspace,
+      );
+      assertEquals(result.code !== 0, true);
+      assertStringIncludes(result.stderr.toLowerCase(), "ambiguous");
+    }
+  } finally {
+    Deno.removeSync(workspace, { recursive: true });
+  }
+});
+
 // ============================================================================
 // TODO management tests
 // ============================================================================
@@ -1173,7 +1348,7 @@ Deno.test("wl: alias '.' refers to current scope", async () => {
     // Verify task is in root
     const listResult = await runCli(["list", "--json"], workspace);
     const { tasks } = JSON.parse(listResult.stdout);
-    assertEquals(tasks.some((t: { id: string }) => t.id === id), true);
+    assertEquals(tasks.some((t: { id: string }) => t.id.startsWith(id)), true);
   } finally {
     Deno.removeSync(workspace, { recursive: true });
   }

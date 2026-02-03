@@ -11,6 +11,7 @@ export interface TaskMeta {
   done_at: string | null;
   last_checkpoint: string | null; // ISO 8601 timestamp
   has_uncheckpointed_entries: boolean;
+  metadata?: Record<string, string>; // Custom attributes like commit_id, pr_url, etc.
 }
 
 export interface IndexEntry {

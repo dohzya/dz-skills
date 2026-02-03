@@ -10,6 +10,17 @@ and this project adheres to
 
 ### Added
 
+- **worklog:** UUID base36 ID system with git-style prefix resolution
+  - Replace date-based IDs with UUID base36 (25 chars, case-insensitive)
+  - Display short IDs (5+ chars minimum)
+  - Resolve any unambiguous prefix (e.g., "acjold", "acjo", "ac")
+  - Backward compatible with existing date-based IDs
+  - Enhanced error messages for ambiguous prefixes with contextual information
+- **worklog:** Task metadata management via `wl meta` command
+  - View metadata: `wl meta <task-id>`
+  - Set metadata: `wl meta <task-id> <key> <value>`
+  - Delete metadata: `wl meta <task-id> --delete <key>`
+  - Metadata stored in task frontmatter for traceability (commit SHA, PR, etc.)
 - **worklog:** TODO management system for tracking action items within tasks
   - Commands: `wl todo list`, `wl todo add`, `wl todo set`, `wl todo next`
   - 5 statuses: todo, wip, blocked, cancelled, done

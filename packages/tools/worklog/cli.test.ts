@@ -1225,11 +1225,13 @@ Deno.test("worklog - JSON output for list command", async () => {
     const result = JSON.parse(output);
 
     assertEquals(result.tasks.length, 2);
-    assertEquals(result.tasks[0].desc, "Task 1");
-    assertEquals(result.tasks[1].desc, "Task 2");
-    assertEquals(result.tasks[0].status, "active");
-    assert(result.tasks[0].id);
-    assert(result.tasks[0].created);
+    const descs = result.tasks.map((t: { desc: string }) => t.desc).sort();
+    assertEquals(descs, ["Task 1", "Task 2"]);
+    assert(
+      result.tasks.every((t: { status: string }) => t.status === "active"),
+    );
+    assert(result.tasks.every((t: { id: string }) => t.id));
+    assert(result.tasks.every((t: { created: string }) => t.created));
   } finally {
     Deno.chdir(originalCwd);
     await Deno.remove(tempDir, { recursive: true });
