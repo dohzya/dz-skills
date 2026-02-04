@@ -39,6 +39,7 @@ import {
   parseFrontmatter,
   stringifyFrontmatter,
 } from "../markdown-surgeon/yaml.ts";
+import { z } from "@zod/zod/mini";
 
 // ============================================================================
 // Version
@@ -70,6 +71,26 @@ const WORKLOG_DEPTH_LIMIT = (() => {
 let ENTRIES_ID: string | null = null;
 let CHECKPOINTS_ID: string | null = null;
 let TODOS_ID: string | null = null;
+
+// ============================================================================
+// Schemas
+// ============================================================================
+
+const TaskMetaSchema = z.object({
+  id: z.string(),
+  uid: z.string(),
+  desc: z.string(),
+  status: z.enum(["active", "done"]),
+  created: z.string(),
+  done_at: z.nullable(z.string()),
+  last_checkpoint: z.nullable(z.string()),
+  has_uncheckpointed_entries: z.boolean(),
+  metadata: z.optional(z.record(z.string(), z.string())),
+});
+
+// ============================================================================
+// Helper functions
+// ============================================================================
 
 async function getEntriesId(): Promise<string> {
   if (!ENTRIES_ID) {
@@ -1031,7 +1052,15 @@ interface ParsedTask {
 async function parseTaskFile(content: string): Promise<ParsedTask> {
   const doc = await parseDocument(content);
   const yamlContent = getFrontmatterContent(doc);
-  const meta = parseFrontmatter(yamlContent) as unknown as TaskMeta;
+
+  // Try strict validation first, fall back to unsafe cast for malformed data
+  let meta: TaskMeta;
+  try {
+    meta = TaskMetaSchema.parse(parseFrontmatter(yamlContent));
+  } catch {
+    // Gracefully handle malformed frontmatter (e.g., in tests or corrupted files)
+    meta = parseFrontmatter(yamlContent) as unknown as TaskMeta;
+  }
 
   const entriesId = await getEntriesId();
   const checkpointsId = await getCheckpointsId();
@@ -1578,6 +1607,7 @@ async function cmdTrace(
   message: string,
   timestamp?: string,
   force?: boolean,
+  metadata?: Record<string, string>,
 ): Promise<TraceOutput> {
   await purge();
 
@@ -1639,10 +1669,19 @@ async function cmdTrace(
 
   doc.lines.splice(insertLine, 0, ...entryLines);
 
-  // Update frontmatter to mark has_uncheckpointed_entries
+  // Update frontmatter to mark has_uncheckpointed_entries and add metadata if provided
   const yamlContent = getFrontmatterContent(doc);
   const frontmatter = parseFrontmatter(yamlContent);
   frontmatter.has_uncheckpointed_entries = true;
+
+  // Add metadata if provided
+  if (metadata && Object.keys(metadata).length > 0) {
+    if (!frontmatter.metadata) {
+      frontmatter.metadata = {};
+    }
+    Object.assign(frontmatter.metadata as Record<string, string>, metadata);
+  }
+
   setFrontmatter(
     doc,
     stringifyFrontmatter(frontmatter as Record<string, unknown>),
@@ -1782,6 +1821,7 @@ async function cmdDone(
   changes: string,
   learnings: string,
   force?: boolean,
+  metadata?: Record<string, string>,
 ): Promise<StatusOutput> {
   await purge();
 
@@ -1817,6 +1857,15 @@ async function cmdDone(
   const frontmatter = parseFrontmatter(yamlContent);
   frontmatter.status = "done";
   frontmatter.done_at = now;
+
+  // Add metadata if provided
+  if (metadata && Object.keys(metadata).length > 0) {
+    if (!frontmatter.metadata) {
+      frontmatter.metadata = {};
+    }
+    Object.assign(frontmatter.metadata as Record<string, string>, metadata);
+  }
+
   setFrontmatter(
     doc,
     stringifyFrontmatter(frontmatter as Record<string, unknown>),
@@ -1849,7 +1898,7 @@ async function cmdMeta(
   const content = await loadTaskContent(taskId);
   const doc = await parseDocument(content);
   const yamlContent = getFrontmatterContent(doc);
-  const frontmatter = parseFrontmatter(yamlContent) as unknown as TaskMeta;
+  const frontmatter = TaskMetaSchema.parse(parseFrontmatter(yamlContent));
 
   // Initialize metadata if not present
   if (!frontmatter.metadata) {
@@ -3532,7 +3581,7 @@ Commands:
   trace <task-id> <message> [options]   Log an entry to a task
   logs <task-id>                        Get task context for checkpoint
   checkpoint <task-id> <changes> <learnings> [options]   Create a checkpoint
-  done <task-id> <changes> <learnings>         Complete task with final checkpoint
+  done <task-id> <changes> <learnings> [options]         Complete task with final checkpoint
   list [--all] [options]                List tasks (--all includes completed)
 
 Todo management:
@@ -3818,7 +3867,7 @@ export async function main(args: string[]): Promise<void> {
         if (positional.length < 2) {
           throw new WtError(
             "invalid_args",
-            "Usage: wt trace <task-id> <message> [--timestamp TS]",
+            "Usage: wt trace <task-id> <message> [--timestamp TS] [--meta key=value]...",
           );
         }
 
@@ -3840,6 +3889,7 @@ export async function main(args: string[]): Promise<void> {
           positional[1],
           timestampValue,
           flags.force,
+          Object.keys(flags.meta).length > 0 ? flags.meta : undefined,
         );
         console.log(flags.json ? JSON.stringify(output) : formatTrace(output));
         break;
@@ -3875,7 +3925,7 @@ export async function main(args: string[]): Promise<void> {
         if (positional.length < 3) {
           throw new WtError(
             "invalid_args",
-            "Usage: wt done <task-id> <changes> <learnings> [--force]",
+            "Usage: wt done <task-id> <changes> <learnings> [--force] [--meta key=value]...",
           );
         }
         const output = await cmdDone(
@@ -3883,6 +3933,7 @@ export async function main(args: string[]): Promise<void> {
           positional[1],
           positional[2],
           flags.force,
+          Object.keys(flags.meta).length > 0 ? flags.meta : undefined,
         );
         console.log(flags.json ? JSON.stringify(output) : formatStatus(output));
         break;

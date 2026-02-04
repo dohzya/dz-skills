@@ -29,6 +29,7 @@ wl list [--all]                                  # List active tasks (--all incl
 
 - Add `-t TS` to `trace` for custom timestamp (e.g., `-t T11:35`)
 - Add `-f` to `trace` or `checkpoint` to modify completed tasks
+- Add `--meta key=value` to `trace` or `done` to attach metadata (commit SHA, PR number, author, session ID)
 - Add `--json` to any command for JSON output
 
 See `reference.md` for complete documentation (imports, advanced features,
@@ -166,6 +167,23 @@ wl trace 250116a -t T11:35 "Pivot to CurrencyBucket approach - tests pass"
 
 Keep messages concise. Include "why" for failures and pivots.
 
+**Adding metadata:**
+
+Use `--meta key=value` to attach contextual information:
+
+```bash
+# Track which commit introduced a change
+wl trace 250116a --meta commit=$(git rev-parse HEAD) "Implemented validation"
+
+# Track session or author
+wl trace 250116a --meta session=morning --meta author=alice "Started debugging"
+
+# Track related issues or PRs
+wl trace 250116a --meta issue=gh-123 --meta pr=456 "Fixed edge case"
+```
+
+Metadata is stored in the task's frontmatter and can be used later for filtering, reporting, or linking work to external systems.
+
 ### Timestamps for batch tracing
 
 **Rule of thumb:**
@@ -213,11 +231,81 @@ Don't just concatenate traces. Synthesize into coherent changes/learnings.
 
 ### Complete task
 
+When task is done, create a final checkpoint that **consolidates all important information from traces**:
+
 ```bash
 wl done 250116a \
-  "<final changes summary>" \
-  "<final learnings>"
+  "<comprehensive changes summary>" \
+  "<consolidated learnings>"
 ```
+
+**IMPORTANT:** The `changes` and `learnings` passed to `wl done` must be a **synthesis of ALL significant traces**, not just a final status update. Review `wl logs <id>` to structure your summary.
+
+**Format recommendations:**
+- Use **bullet-lists** instead of dense paragraphs (much more readable)
+- Start with a **one-line summary** of what was achieved
+- Use **sections** (Actions, Résultat, etc.) to organize information
+- **Numbered lists** for learnings make them easy to reference later
+
+**First argument (changes)** should contain:
+1. **One-line summary**: Brief description of what was accomplished
+2. **Actions**: Bullet-list of what was concretely done (implementations, fixes, refactors, pivots)
+3. **Résultat**: Bullet-list of final outcomes (what works, what was validated, metrics)
+
+**Second argument (learnings)** should contain:
+- **Numbered insights**: Reusable lessons for future work (what approach worked/failed and why, patterns discovered, things to remember)
+
+**Good example:**
+```bash
+wl done 250116a \
+  "Multi-currency validation implemented via CurrencyBucket pattern (12 tests passing)
+
+Actions:
+- Implemented CurrencyBucket pattern for per-currency validation
+- Added MIXED_CURRENCY_ZERO_BALANCE error handling
+- Refactored validator to support per-currency aggregation
+- Initial attempt (direct currency field) failed → broke 12 tests
+- Pivot to CurrencyBucket approach → all tests pass
+
+Résultat:
+- 12/12 tests passing
+- Single-currency orders unchanged
+- Multi-currency validation working correctly" \
+  "1. Initial currency field approach broke existing validators (wrong abstraction layer)
+2. CurrencyBucket pattern better isolates currency logic - reusable for other aggregations
+3. Centralizing validation prevents fragmentation across codebase
+4. Always validate aggregate before individual buckets - catches edge cases earlier"
+```
+
+**Bad example (avoid):**
+```bash
+wl done 250116a "Task completed" "All tests pass"
+# ❌ Missing: what was implemented, what approaches failed, why pivots happened
+```
+
+**Git workflow (versioned projects):**
+
+For version-controlled projects, follow this order:
+1. **Create the commit first** (with all changes)
+2. **Then mark worktask as done** with commit reference
+
+```bash
+# 1. Commit your changes
+git add .
+git commit -m "Implement multi-currency support
+
+- Added CurrencyBucket pattern
+- New validation error types
+- Tests passing"
+
+# 2. Mark worktask done with commit ref
+wl done 250116a \
+  "<comprehensive changes summary>" \
+  "<consolidated learnings>" \
+  --meta commit=$(git rev-parse HEAD)
+```
+
+This links the worktask to the actual code changes, making it easy to trace work history to specific commits.
 
 This creates a final checkpoint and marks the task done.
 

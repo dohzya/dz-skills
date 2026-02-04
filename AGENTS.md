@@ -30,6 +30,31 @@ task validate  # Runs fmt + check + lint + test
 **Do not skip this step** - if any check fails, fix the issues before
 committing. These checks are enforced by CI.
 
+## TypeScript Best Practices
+
+### Type Safety and Validation
+
+**NEVER use unsafe type casts** like `as unknown as T` to bypass TypeScript errors. Instead, use proper runtime validation:
+
+- **Use Zod 4 Mini** for runtime validation (NOT Zod 3, and only the mini package)
+  ```typescript
+  import { z } from "zod/mini";
+
+  const schema = z.object({
+    id: z.string(),
+    status: z.enum(["active", "done"]),
+    // ... other fields
+  });
+
+  const validated = schema.parse(data); // Throws on invalid data
+  ```
+
+- Import from `"zod/mini"` for smaller bundle size
+- Define schemas for data structures that come from external sources (files, APIs, user input)
+- Let validation failures throw - they indicate real bugs
+
+**Why:** Unsafe casts hide bugs. Zod validation catches them at runtime and provides clear error messages.
+
 ## Creating Releases
 
 When it's time to create a new release, refer to [RELEASE.md](RELEASE.md) for
