@@ -1074,8 +1074,14 @@ const concatCmd = new Command()
 const metaCmd = new Command()
   .description("Manage YAML frontmatter")
   .arguments("<fileOrKey:string> [args...:string]")
-  .option("--list <fields:string>", "List metadata from multiple files (concat with duplicates)")
-  .option("--aggregate <fields:string>", "List unique metadata from multiple files (deduplicated)")
+  .option(
+    "--list <fields:string>",
+    "List metadata from multiple files (concat with duplicates)",
+  )
+  .option(
+    "--aggregate <fields:string>",
+    "List unique metadata from multiple files (deduplicated)",
+  )
   .option("--set", "Set a key (single file only)")
   .option("--del", "Delete a key (single file only)")
   .option("--h1", "Get the H1 title (single file only)")

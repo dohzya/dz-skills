@@ -38,15 +38,19 @@ jobs:
           TOOL=${{ steps.tag.outputs.tool }}
           VERSION=${{ steps.tag.outputs.version }}
 
+          # Get JSR package version from deno.json
+          JSR_VERSION=$(grep '"version":' packages/tools/deno.json | sed 's/.*"version": "\(.*\)".*/\1/')
+          echo "Using JSR package version: $JSR_VERSION"
+
           # Create dist directory
           mkdir -p dist
 
           # Determine entry point
           if [ "$TOOL" = "md" ]; then
-            ENTRY="jsr:@dohzya/tools@${VERSION#v}/markdown-surgeon/cli"
+            ENTRY="jsr:@dohzya/tools@${JSR_VERSION}/markdown-surgeon/cli"
             PERMS="--allow-read --allow-write"
           else
-            ENTRY="jsr:@dohzya/tools@${VERSION#v}/worklog/cli"
+            ENTRY="jsr:@dohzya/tools@${JSR_VERSION}/worklog/cli"
             PERMS="--allow-read --allow-write --allow-env --allow-run=git"
           fi
 

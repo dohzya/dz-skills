@@ -11,7 +11,8 @@ and this project adheres to
 ### Added
 
 - **markdown-surgeon:** Multi-file metadata aggregation via `md meta` command
-  - Aggregate metadata from multiple files with `--list` (with duplicates) or `--aggregate` (unique values)
+  - Aggregate metadata from multiple files with `--list` (with duplicates) or
+    `--aggregate` (unique values)
   - Multi-field support: `md meta --aggregate tags,categories file1.md file2.md`
   - Glob pattern support: `md meta --aggregate tags vault/**/*.md`
   - JSON output: `md meta --aggregate tags *.md --json`

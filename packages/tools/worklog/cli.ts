@@ -20,8 +20,8 @@ import {
   type ScopesOutput,
   type StatusOutput,
   type SummaryOutput,
-  type TaskMeta,
   TASK_STATUSES,
+  type TaskMeta,
   type Todo,
   type TodoAddOutput,
   type TodoListOutput,
@@ -1920,7 +1920,9 @@ async function cmdMeta(
       if (!isValidTaskStatus(value)) {
         throw new WtError(
           "invalid_args",
-          `Invalid status: ${value}. Must be one of: ${TASK_STATUSES.join(", ")}`,
+          `Invalid status: ${value}. Must be one of: ${
+            TASK_STATUSES.join(", ")
+          }`,
         );
       }
       frontmatter.status = value;
