@@ -82,17 +82,24 @@ wl checkpoint 250116a \
 
 ### 4. Complete Task (After Commit!)
 
+**CRITICAL: Always review before closing!**
+
 **Order matters:**
 1. Commit your changes first
-2. Then mark worktask done
+2. **Review traces & check TODOs** with `wl show`
+3. Then mark worktask done
 
 ```bash
 # 1. Commit
 git add .
 git commit -m "feat: multi-currency support"
 
-# 2. Review ALL traces
-wl logs 250116a
+# 2. Review ALL traces + check TODOs
+wl show 250116a
+# ⚠️ Check output for:
+#   - Pending TODOs that need completion
+#   - All significant traces to consolidate
+#   - Pattern of what failed/worked
 
 # 3. Final consolidation + REX
 wl done 250116a \
@@ -126,7 +133,8 @@ Résultat:
 3. **Missing timestamps** → Use `-t` when batch-tracing
 4. **Checkpoint = conclusion** → NO! Consolidate traces into narrative
 5. **Done before commit** → Commit first, then done
-6. **REX = summary** → NO! REX = critical distance, reusable insights
+6. **Done without reviewing** → ALWAYS do `wl show <id>` first to review traces + check TODOs
+7. **REX = summary** → NO! REX = critical distance, reusable insights
 
 ## Quick Reference
 
@@ -134,9 +142,9 @@ Résultat:
 wl add "description"              # Create worktask
 wl trace <id> "msg"               # Log with context (causes/pistes)
 wl trace <id> -t T14:30 "msg"     # With timestamp
-wl logs <id>                      # Review before checkpoint
+wl show <id>                      # Review traces + TODOs (before checkpoint/done!)
 wl checkpoint <id> "changes" "rx" # Consolidate traces
-wl done <id> "changes" "rx"       # After commit!
+wl done <id> "changes" "rx"       # After commit + wl show!
 wl list                           # See active worktasks
 
 # TODO management

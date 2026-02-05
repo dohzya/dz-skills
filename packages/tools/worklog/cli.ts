@@ -4211,7 +4211,8 @@ const checkpointCmd = new Command()
 
 const doneCmd = new Command()
   .description(
-    "Final consolidation: synthesize ALL traces (changes) + REX (learnings)",
+    "Final consolidation: synthesize ALL traces (changes) + REX (learnings)\n" +
+      "⚠️  ALWAYS run 'wl show <id>' first to review traces & check TODOs!",
   )
   .arguments("<taskId:string> <changes:string> <learnings:string>")
   .option("--json", "Output as JSON")
