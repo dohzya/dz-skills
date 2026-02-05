@@ -1,212 +1,237 @@
 # Guidelines for AI Agents
 
+## TL;DR
+
+```bash
+# 1. Créer une worktask AVANT de commencer
+wl add --desc "Description du travail"
+
+# 2. Tracer les actions significatives
+wl trace <id> "Action effectuée"
+
+# 3. Tester avec le code LOCAL (pas les binaires installés!)
+deno -A packages/tools/worklog/cli.ts <command>
+deno -A packages/tools/markdown-surgeon/cli.ts <command>
+
+# 4. TOUJOURS valider avant de dire "c'est fini"
+task validate
+
+# 5. Marquer la worktask comme terminée
+wl done <id> "Changes" "Learnings"
+
+# 6. Pour release → voir RELEASE.md
+```
+
+---
+
+## Core Workflow
+
+**L'ordre à suivre pour TOUT travail sur ce projet :**
+
+| Étape | Action | Commande |
+|-------|--------|----------|
+| 1 | Créer worktask | `wl add --desc "..."` |
+| 2 | Travailler + tracer | `wl trace <id> "..."` |
+| 3 | Tester localement | `deno -A packages/tools/<tool>/cli.ts ...` |
+| 4 | Valider | `task validate` |
+| 5 | Commit (si applicable) | `git add ... && git commit ...` |
+| 6 | Terminer worktask | `wl done <id> "changes" "learnings"` |
+| 7 | Release? | Voir [RELEASE.md](RELEASE.md) |
+
+**CRITIQUE :** Ne JAMAIS dire "j'ai terminé" sans avoir exécuté `task validate`.
+
+---
+
+## Worklog (OBLIGATOIRE)
+
+**Pour TOUTE session de travail, tu DOIS :**
+
+### 1. Créer une worktask au début
+
+```bash
+wl add --desc "Description du travail à faire"
+# Retourne un ID (ex: 260202n)
+```
+
+### 2. Tracer chaque action significative
+
+```bash
+wl trace <id> "Lu le fichier X pour comprendre Y"
+wl trace <id> "Modifié X: ajouté fonctionnalité Y"
+wl trace <id> "Tests échoués: cause=Z, piste=essayer W"
+wl trace <id> "task validate OK"
+```
+
+**Bonnes traces = avec causes & pistes :**
+- ✅ `"Essayé X - échec (cause: validator attend Y), piste: pattern Z"`
+- ❌ `"Essayé X"` / `"Ça marche pas"`
+
+### 3. Consulter le contexte
+
+```bash
+wl show <id>    # Info + traces depuis dernier checkpoint
+wl traces <id>  # Toutes les traces
+```
+
+### 4. Terminer la worktask
+
+```bash
+wl done <id> "Résumé des changements" "Ce qu'on a appris (REX)"
+```
+
+**Important :** `done` APRÈS le commit, pas avant.
+
+### Le répertoire .worklog/
+
+Le répertoire `.worklog/` est local et ne doit JAMAIS être commité (déjà dans `.gitignore`).
+
+---
+
 ## Project Setup
 
-**First time setup:** Run `bash setup.sh` to install mise and Deno.
+**Première installation :** `bash setup.sh` installe mise et Deno.
 
-This will:
-
-- Install [mise](https://mise.jdx.dev/) if not present
-- Install Deno (latest version)
-- Trust the repository's `mise.toml`
-
-**Available commands:**
+**Commandes disponibles :**
 
 ```bash
-task fmt       # Format code
-task test      # Run tests only
-task check     # Check code (format + type + lint)
-task validate  # Run all checks (fmt + check + lint + test)
+task fmt       # Formater le code
+task test      # Lancer les tests
+task check     # Vérifier (format + type + lint)
+task validate  # TOUT vérifier (fmt + check + lint + test)
 ```
 
-## Pre-commit Checks
+---
 
-**CRITICAL:** Before saying you're done with any code changes, ALWAYS run:
+## Development
 
-```bash
-task validate  # Runs fmt + check + lint + test
-```
+### Tester les modifications CLI
 
-**Do not skip this step** - if any check fails, fix the issues before committing. These checks are enforced by CI.
+**⚠️ CRITIQUE : Les binaires installés (`wl`, `md`) utilisent les versions JSR publiées, PAS ton code local !**
 
-## Testing CLI Changes
-
-When modifying CLI code (`markdown-surgeon/cli.ts` or `worklog/cli.ts`), you should test your changes using the unit tests:
+**TOUJOURS utiliser Deno directement :**
 
 ```bash
-task test:md   # Test markdown-surgeon CLI
-task test:wl   # Test worklog CLI
-task test      # Run all tests (including compatibility tests)
-```
-
-The CLI tests call `main()` directly and use `captureOutput()` to verify output. For integration tests that spawn subprocesses, see `compat-tests/` directory.
-
-### Manual Testing During Development
-
-**⚠️ CRITICAL: The installed binaries (`wl`, `md`) use published JSR versions, NOT your local changes!**
-
-**ALWAYS use Deno directly during development:**
-
-```bash
-# For worklog - DO THIS, NOT 'wl'
+# Pour worklog - FAIRE CECI, PAS 'wl'
 deno -A packages/tools/worklog/cli.ts <command> [args]
 deno -A packages/tools/worklog/cli.ts list
 deno -A packages/tools/worklog/cli.ts trace <id> "message"
 
-# For markdown-surgeon - DO THIS, NOT 'md'
+# Pour markdown-surgeon - FAIRE CECI, PAS 'md'
 deno -A packages/tools/markdown-surgeon/cli.ts <command> [args]
 deno -A packages/tools/markdown-surgeon/cli.ts meta file.md
 ```
 
-**Why:**
-- The `wl` and `md` binaries installed via Homebrew/mise use `jsr:@dohzya/tools@X.Y.Z`
-- Your local code changes won't be reflected until you publish a new JSR version
-- Using `deno -A packages/tools/.../cli.ts` runs your local code directly
+**Pourquoi :**
+- `wl` et `md` installés via Homebrew/mise utilisent `jsr:@dohzya/tools@X.Y.Z`
+- Tes modifications locales ne seront pas visibles tant que tu n'as pas publié sur JSR
+- `deno -A packages/tools/.../cli.ts` exécute ton code local directement
 
-**Quick alias setup for convenience:**
+**Alias pratiques (optionnel) :**
 ```bash
-# Add to your shell profile
 alias wl-dev='deno -A packages/tools/worklog/cli.ts'
 alias md-dev='deno -A packages/tools/markdown-surgeon/cli.ts'
 ```
 
-### Writing Tests - Best Practices
+### Tests automatisés
 
-**DO NOT create temporary files/directories manually** for testing (e.g., `/tmp/test-vault`). Instead:
+```bash
+task test:md   # Tests markdown-surgeon
+task test:wl   # Tests worklog
+task test      # Tous les tests (+ compat-tests)
+```
 
-1. **Write tests directly in `cli.test.ts`** using the existing `createTempFile()` helper:
-   ```typescript
-   const file = await createTempFile(`---\ntags: [foo]\n---\n# Test`);
-   try {
-     const output = await captureOutput(() =>
-       main(["meta", "--aggregate", "tags", file])
-     );
-     assertEquals(output.trim(), "foo");
-   } finally {
-     await Deno.remove(file); // Automatic cleanup
-   }
-   ```
+Les tests CLI appellent `main()` directement et utilisent `captureOutput()`.
 
-2. **For multiple files**, create them in the test:
-   ```typescript
-   const file1 = await createTempFile(`---\ntags: [foo]\n---\n# File 1`);
-   const file2 = await createTempFile(`---\ntags: [bar]\n---\n# File 2`);
-   try {
-     // Test with both files
-   } finally {
-     await Deno.remove(file1);
-     await Deno.remove(file2);
-   }
-   ```
+### Écrire des tests
 
-3. **For glob patterns**, use `Deno.makeTempDir()`:
-   ```typescript
-   const tmpDir = await Deno.makeTempDir();
-   try {
-     await Deno.writeTextFile(`${tmpDir}/a.md`, `---\ntags: [foo]\n---\n# A`);
-     await Deno.writeTextFile(`${tmpDir}/b.md`, `---\ntags: [bar]\n---\n# B`);
-     const output = await captureOutput(() =>
-       main(["meta", "--aggregate", "tags", `${tmpDir}/*.md`])
-     );
-     // Test output
-   } finally {
-     await Deno.remove(tmpDir, { recursive: true });
-   }
-   ```
+**NE PAS créer de fichiers/répertoires temporaires manuellement** (ex: `/tmp/test-vault`).
 
-**Why:** Tests are self-contained, automatically cleaned up, and run in isolation. Manual temp files can interfere with tests and leave clutter.
+**Utiliser les helpers existants :**
+
+```typescript
+// Fichier unique
+const file = await createTempFile(`---\ntags: [foo]\n---\n# Test`);
+try {
+  const output = await captureOutput(() =>
+    main(["meta", "--aggregate", "tags", file])
+  );
+  assertEquals(output.trim(), "foo");
+} finally {
+  await Deno.remove(file);
+}
+
+// Plusieurs fichiers
+const file1 = await createTempFile(`---\ntags: [foo]\n---\n# File 1`);
+const file2 = await createTempFile(`---\ntags: [bar]\n---\n# File 2`);
+try {
+  // Test...
+} finally {
+  await Deno.remove(file1);
+  await Deno.remove(file2);
+}
+
+// Patterns glob
+const tmpDir = await Deno.makeTempDir();
+try {
+  await Deno.writeTextFile(`${tmpDir}/a.md`, `---\ntags: [foo]\n---\n# A`);
+  await Deno.writeTextFile(`${tmpDir}/b.md`, `---\ntags: [bar]\n---\n# B`);
+  // Test avec `${tmpDir}/*.md`
+} finally {
+  await Deno.remove(tmpDir, { recursive: true });
+}
+```
+
+---
 
 ## TypeScript Best Practices
 
-### Type Safety and Validation
+### Type Safety et Validation
 
-**NEVER use unsafe type casts** like `as unknown as T` to bypass TypeScript errors. Instead, use proper runtime validation:
+**JAMAIS de casts unsafe** comme `as unknown as T`.
 
-- **Use Zod 4 Mini** for runtime validation (NOT Zod 3, and only the mini package)
-  ```typescript
-  import { z } from "zod/mini";
+**Utiliser Zod 4 Mini pour la validation runtime :**
 
-  const schema = z.object({
-    id: z.string(),
-    status: z.enum(["active", "done"]),
-    // ... other fields
-  });
+```typescript
+import { z } from "zod/mini";
 
-  const validated = schema.parse(data); // Throws on invalid data
-  ```
+const schema = z.object({
+  id: z.string(),
+  status: z.enum(["active", "done"]),
+});
 
-- Import from `"zod/mini"` for smaller bundle size
-- Define schemas for data structures that come from external sources (files, APIs, user input)
-- Let validation failures throw - they indicate real bugs
+const validated = schema.parse(data); // Throw si invalide
+```
 
-**Why:** Unsafe casts hide bugs. Zod validation catches them at runtime and provides clear error messages.
+- Import depuis `"zod/mini"` (bundle plus petit)
+- Définir des schémas pour les données externes (fichiers, APIs, input utilisateur)
+- Laisser les erreurs de validation remonter - elles indiquent de vrais bugs
+
+---
 
 ## Creating Releases
 
-When it's time to create a new release, refer to [RELEASE.md](RELEASE.md) for the complete release process, including:
+**→ Voir [RELEASE.md](RELEASE.md)** pour le processus complet.
 
-- Automated scripts (`task bump`, `task build`, `task update-tap`)
-- Manual step-by-step instructions
-- Critical order of operations (JSR publish BEFORE building binaries!)
-- Bundle releases (combining wl + md for mise backend)
-- Common pitfalls and troubleshooting
+**Points clés :**
+- JSR publish AVANT de créer le tag (les binaires téléchargent depuis JSR)
+- `task bump TOOL=wl VERSION=X.Y.Z` met à jour tous les fichiers
+- `task update-tap` calcule les checksums depuis les binaires GitHub
 
-**Important:** For bundle releases, always verify which tool versions will be included BEFORE pushing the tag:
+**Vérifier les versions avant un bundle release :**
 
 ```bash
-# Note: gh release list is tab-separated
 gh release list -R dohzya/tools | awk -F'\t' '$3 ~ /^wl-v/ {print $3; exit}'
 gh release list -R dohzya/tools | awk -F'\t' '$3 ~ /^md-v/ {print $3; exit}'
 ```
 
+---
+
 ## CHANGELOG.md
 
-You can and should maintain `packages/tools/CHANGELOG.md` when making changes.
+Maintenir `packages/tools/CHANGELOG.md` lors des modifications.
 
-**Important rules:**
+**Règles :**
 
-1. **NEVER modify existing entries** - the history is immutable
-   - Don't change version numbers, dates, or descriptions of past releases
-   - Only fix typos if absolutely necessary
-2. **ONLY add new entries** at the top
-   - Add a new `## [X.Y.Z]` section for the new version
-   - Document what changed in this release
-3. When bumping version, use the automation script:
-   - Run `task bump TOOL=wl VERSION=X.Y.Z` (updates all files)
-   - Or follow manual checklist in [RELEASE.md](RELEASE.md)
-   - Add new CHANGELOG entry
-
-## Worklog Usage
-
-**IMPORTANT:** For any work session, you must systematically:
-
-1. **Create a worktask** (worklog's unit of tracked work) if one doesn't exist:
-   ```bash
-   wl task create "Description of the work to be done"
-   ```
-   This returns a worktask ID (e.g., `260202n`)
-
-2. **Trace each significant action** as you work:
-   ```bash
-   wl trace <worktask-id> "Description of the action taken"
-   ```
-   Trace reading files, making changes, running tests, etc.
-
-3. **View task context and traces:**
-   ```bash
-   wl show <worktask-id>   # Show task info + entries since last checkpoint
-   wl traces <worktask-id> # List all traces for the task
-   ```
-
-4. **Mark the worktask as done** when work is complete:
-   ```bash
-   wl done <worktask-id> "Summary of changes" "What was learned"
-   ```
-
-This helps maintain a clear record of all work done and supports effective collaboration and progress tracking.
-
-### .worklog/ Directory
-
-The `.worklog/` directory is a local working directory and should never be committed to git.
-
-It is already in `.gitignore`.
+1. **JAMAIS modifier les entrées existantes** - l'historique est immutable
+2. **SEULEMENT ajouter** de nouvelles entrées au début
+3. Lors d'un bump, utiliser `task bump` qui met à jour tous les fichiers
