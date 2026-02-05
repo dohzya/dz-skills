@@ -36,6 +36,14 @@ Deno.test("WtError - handles different error codes", () => {
 // Integration tests for wl trace with timestamp
 import { main } from "./cli.ts";
 
+Deno.test("worklog - shows help when no arguments provided", async () => {
+  const output = await captureOutput(() => main([]));
+  assertStringIncludes(output, "Core workflow:");
+  assertStringIncludes(output, "wl add");
+  assertStringIncludes(output, "wl trace");
+  assertStringIncludes(output, "Key principles:");
+});
+
 Deno.test("worklog trace - uses current timestamp by default", async () => {
   const tempDir = await Deno.makeTempDir();
   const originalCwd = Deno.cwd();

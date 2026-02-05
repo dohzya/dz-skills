@@ -43,17 +43,32 @@ The CLI tests call `main()` directly and use `captureOutput()` to verify output.
 
 ### Manual Testing During Development
 
-During development, use Deno directly instead of the installed binary:
+**⚠️ CRITICAL: The installed binaries (`wl`, `md`) use published JSR versions, NOT your local changes!**
+
+**ALWAYS use Deno directly during development:**
 
 ```bash
-# For worklog (wl)
+# For worklog - DO THIS, NOT 'wl'
 deno -A packages/tools/worklog/cli.ts <command> [args]
+deno -A packages/tools/worklog/cli.ts list
+deno -A packages/tools/worklog/cli.ts trace <id> "message"
 
-# For markdown-surgeon (md)
+# For markdown-surgeon - DO THIS, NOT 'md'
 deno -A packages/tools/markdown-surgeon/cli.ts <command> [args]
+deno -A packages/tools/markdown-surgeon/cli.ts meta file.md
 ```
 
-This ensures you test the latest code changes without needing to rebuild the binaries.
+**Why:**
+- The `wl` and `md` binaries installed via Homebrew/mise use `jsr:@dohzya/tools@X.Y.Z`
+- Your local code changes won't be reflected until you publish a new JSR version
+- Using `deno -A packages/tools/.../cli.ts` runs your local code directly
+
+**Quick alias setup for convenience:**
+```bash
+# Add to your shell profile
+alias wl-dev='deno -A packages/tools/worklog/cli.ts'
+alias md-dev='deno -A packages/tools/markdown-surgeon/cli.ts'
+```
 
 ### Writing Tests - Best Practices
 

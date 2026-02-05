@@ -4210,7 +4210,9 @@ const checkpointCmd = new Command()
   });
 
 const doneCmd = new Command()
-  .description("Final consolidation: synthesize ALL traces (changes) + REX (learnings)")
+  .description(
+    "Final consolidation: synthesize ALL traces (changes) + REX (learnings)",
+  )
   .arguments("<taskId:string> <changes:string> <learnings:string>")
   .option("--json", "Output as JSON")
   .option("--scope <scope:string>", "Target specific scope")
@@ -4349,8 +4351,8 @@ const cli = new Command()
   .description(
     "Worklog - Track work progress with traces and checkpoints\n\n" +
       "Core workflow:\n" +
-      "  1. wl add \"task\"              # Create worktask (returns ID)\n" +
-      "  2. wl trace <id> \"msg\"        # Log with causes/pistes + timestamps\n" +
+      '  1. wl add "task"              # Create worktask (returns ID)\n' +
+      '  2. wl trace <id> "msg"        # Log with causes/pistes + timestamps\n' +
       "  3. wl checkpoint <id> ...      # Consolidate traces into narrative\n" +
       "  4. wl done <id> ...            # Final REX (after git commit!)\n\n" +
       "Key principles:\n" +
@@ -4358,7 +4360,7 @@ const cli = new Command()
       "  - Traces need context: causes (why failed) + pistes (what next)\n" +
       "  - Checkpoints consolidate traces (not conclusions)\n" +
       "  - Done = final consolidation + REX with critical distance\n" +
-      "  - Use -t for batch tracing: wl trace <id> -t T14:30 \"msg\"\n\n" +
+      '  - Use -t for batch tracing: wl trace <id> -t T14:30 "msg"\n\n' +
       "See 'wl <command> --help' for details",
   )
   .command("init", initCmd)
@@ -4376,6 +4378,11 @@ const cli = new Command()
   .command("scopes", scopesCmd);
 
 export async function main(args: string[]): Promise<void> {
+  // Show help when no arguments provided
+  if (args.length === 0) {
+    cli.showHelp();
+    return;
+  }
   await cli.parse(args);
 }
 
