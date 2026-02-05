@@ -4052,7 +4052,10 @@ const initCmd = new Command()
   });
 
 const taskCreateCmd = new Command()
-  .description("Create a new task")
+  .description(
+    "Create a new task (returns ID for use in trace/checkpoint/done)\n" +
+      "Always create a worktask before starting work",
+  )
   .arguments("<desc:string>")
   .option("--json", "Output as JSON")
   .option("--scope <scope:string>", "Target specific scope")
@@ -4110,7 +4113,7 @@ const taskCmd = new Command()
   .command("create", taskCreateCmd);
 
 const traceCmd = new Command()
-  .description("Log an entry to a task")
+  .description("Log an entry (include causes for failures, pistes for pivots)")
   .arguments("<taskId:string> <message:string>")
   .option("--json", "Output as JSON")
   .option("--scope <scope:string>", "Target specific scope")
@@ -4151,7 +4154,10 @@ const traceCmd = new Command()
   });
 
 const showCmd = new Command()
-  .description("Show task context for checkpoint")
+  .description(
+    "Show task context (alias for 'logs')\n" +
+      "Use before creating checkpoints to review traces",
+  )
   .arguments("<taskId:string>")
   .option("--json", "Output as JSON")
   .option("--scope <scope:string>", "Target specific scope")
@@ -4182,7 +4188,7 @@ const tracesCmd = new Command()
   });
 
 const checkpointCmd = new Command()
-  .description("Create a checkpoint")
+  .description("Consolidate recent traces into synthesis (not just a list)")
   .arguments("<taskId:string> <changes:string> <learnings:string>")
   .option("--json", "Output as JSON")
   .option("--scope <scope:string>", "Target specific scope")
@@ -4204,7 +4210,7 @@ const checkpointCmd = new Command()
   });
 
 const doneCmd = new Command()
-  .description("Complete task with final checkpoint")
+  .description("Final consolidation: synthesize ALL traces (changes) + REX (learnings)")
   .arguments("<taskId:string> <changes:string> <learnings:string>")
   .option("--json", "Output as JSON")
   .option("--scope <scope:string>", "Target specific scope")
@@ -4340,7 +4346,21 @@ const importCmd = new Command()
 const cli = new Command()
   .name("wl")
   .version(VERSION)
-  .description("Worklog - Track work progress during development sessions")
+  .description(
+    "Worklog - Track work progress with traces and checkpoints\n\n" +
+      "Core workflow:\n" +
+      "  1. wl add \"task\"              # Create worktask (returns ID)\n" +
+      "  2. wl trace <id> \"msg\"        # Log with causes/pistes + timestamps\n" +
+      "  3. wl checkpoint <id> ...      # Consolidate traces into narrative\n" +
+      "  4. wl done <id> ...            # Final REX (after git commit!)\n\n" +
+      "Key principles:\n" +
+      "  - Always work within a worktask (create with 'wl add' first)\n" +
+      "  - Traces need context: causes (why failed) + pistes (what next)\n" +
+      "  - Checkpoints consolidate traces (not conclusions)\n" +
+      "  - Done = final consolidation + REX with critical distance\n" +
+      "  - Use -t for batch tracing: wl trace <id> -t T14:30 \"msg\"\n\n" +
+      "See 'wl <command> --help' for details",
+  )
   .command("init", initCmd)
   .command("task", taskCmd)
   .command("trace", traceCmd)
