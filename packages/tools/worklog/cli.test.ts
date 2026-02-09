@@ -3272,3 +3272,149 @@ Deno.test("list --started - shows only started tasks", async () => {
     await Deno.remove(tempDir, { recursive: true });
   }
 });
+
+// ============================================================================
+// Tests for -C and --worklog-dir global options
+// ============================================================================
+
+Deno.test("-C basic - operates on remote directory", async () => {
+  const tempDir = await Deno.makeTempDir();
+  const originalCwd = Deno.cwd();
+  try {
+    // Init worklog in tempDir
+    Deno.chdir(tempDir);
+    await main(["init"]);
+    await main(["create", "Remote task"]);
+    Deno.chdir(originalCwd);
+
+    // From original cwd, use -C to list tasks in tempDir
+    const listOutput = await captureOutput(() =>
+      main(["-C", tempDir, "list", "--json"])
+    );
+    const { tasks } = JSON.parse(listOutput);
+    assertEquals(tasks.length, 1);
+    assertEquals(tasks[0].name, "Remote task");
+  } finally {
+    Deno.chdir(originalCwd);
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});
+
+Deno.test("-C + create - creates task in remote directory", async () => {
+  const tempDir = await Deno.makeTempDir();
+  const originalCwd = Deno.cwd();
+  try {
+    // Init worklog in tempDir first
+    Deno.chdir(tempDir);
+    await main(["init"]);
+    Deno.chdir(originalCwd);
+
+    // Create a task using -C from a different directory
+    await main(["-C", tempDir, "create", "Remote created task"]);
+
+    // Verify the task file exists in tempDir
+    const listOutput = await captureOutput(() =>
+      main(["-C", tempDir, "list", "--json"])
+    );
+    const { tasks } = JSON.parse(listOutput);
+    assertEquals(tasks.length, 1);
+    assertEquals(tasks[0].name, "Remote created task");
+  } finally {
+    Deno.chdir(originalCwd);
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});
+
+Deno.test("--worklog-dir basic - operates on non-standard worklog path", async () => {
+  const tempDir = await Deno.makeTempDir();
+  const originalCwd = Deno.cwd();
+  try {
+    // Create a worklog in a non-standard directory name
+    Deno.chdir(tempDir);
+    Deno.mkdirSync(".wl");
+    Deno.mkdirSync(".wl/tasks");
+    Deno.writeTextFileSync(".wl/index.json", JSON.stringify({ version: 2, tasks: {} }));
+    Deno.chdir(originalCwd);
+
+    // Use --worklog-dir to point to the non-standard path
+    const listOutput = await captureOutput(() =>
+      main(["--worklog-dir", `${tempDir}/.wl`, "list", "--all", "--json"])
+    );
+    const { tasks } = JSON.parse(listOutput);
+    assertEquals(tasks.length, 0);
+  } finally {
+    Deno.chdir(originalCwd);
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});
+
+Deno.test("-C + --worklog-dir - combined usage", async () => {
+  const tempDir = await Deno.makeTempDir();
+  const originalCwd = Deno.cwd();
+  try {
+    // Create a non-standard worklog dir inside tempDir
+    Deno.mkdirSync(`${tempDir}/.wl`);
+    Deno.mkdirSync(`${tempDir}/.wl/tasks`);
+    Deno.writeTextFileSync(
+      `${tempDir}/.wl/index.json`,
+      JSON.stringify({ version: 2, tasks: {} }),
+    );
+
+    // Use -C to change to tempDir, then --worklog-dir for the relative .wl
+    const listOutput = await captureOutput(() =>
+      main(["-C", tempDir, "--worklog-dir", ".wl", "list", "--all", "--json"])
+    );
+    const { tasks } = JSON.parse(listOutput);
+    assertEquals(tasks.length, 0);
+  } finally {
+    Deno.chdir(originalCwd);
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});
+
+Deno.test("--worklog-dir + --scope conflict - throws error", async () => {
+  const originalCwd = Deno.cwd();
+  const originalExit = Deno.exit;
+  try {
+    // deno-lint-ignore no-explicit-any
+    (Deno as any).exit = (_code: number) => {};
+    let caught: Error | undefined;
+    try {
+      await main(["--worklog-dir", "/tmp", "list", "--scope", "foo", "--json"]);
+    } catch (e) {
+      caught = e as Error;
+    }
+    assert(caught instanceof WtError);
+    assertEquals(caught.code, "invalid_args");
+    assertStringIncludes(caught.message, "Cannot use --scope with --worklog-dir");
+  } finally {
+    // deno-lint-ignore no-explicit-any
+    (Deno as any).exit = originalExit;
+    Deno.chdir(originalCwd);
+  }
+});
+
+Deno.test("--worklog-dir + init - creates non-standard worklog dir", async () => {
+  const tempDir = await Deno.makeTempDir();
+  const originalCwd = Deno.cwd();
+  try {
+    // Use --worklog-dir to init a non-standard worklog
+    await main(["--worklog-dir", `${tempDir}/.custom-wl`, "init"]);
+
+    // Verify it was created
+    const stat = await Deno.stat(`${tempDir}/.custom-wl`);
+    assert(stat.isDirectory);
+    const indexStat = await Deno.stat(`${tempDir}/.custom-wl/index.json`);
+    assert(indexStat.isFile);
+
+    // Verify we can list from it
+    const listOutput = await captureOutput(() =>
+      main(["--worklog-dir", `${tempDir}/.custom-wl`, "list", "--all", "--json"])
+    );
+    const { tasks } = JSON.parse(listOutput);
+    assertEquals(tasks.length, 0);
+  } finally {
+    Deno.chdir(originalCwd);
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});

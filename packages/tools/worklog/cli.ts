@@ -44,6 +44,7 @@ import {
   parseFrontmatter,
   stringifyFrontmatter,
 } from "../markdown-surgeon/yaml.ts";
+import { basename, dirname, resolve } from "@std/path";
 import { z } from "@zod/zod/mini";
 
 // ============================================================================
@@ -56,10 +57,11 @@ const VERSION = "0.6.0";
 // Constants
 // ============================================================================
 
-const WORKLOG_DIR = ".worklog";
-const TASKS_DIR = `${WORKLOG_DIR}/tasks`;
-const INDEX_FILE = `${WORKLOG_DIR}/index.json`;
-const _SCOPE_FILE = `${WORKLOG_DIR}/scope.json`;
+const DEFAULT_WORKLOG_DIR = ".worklog";
+let WORKLOG_DIR = DEFAULT_WORKLOG_DIR;
+let TASKS_DIR = `${WORKLOG_DIR}/tasks`;
+let INDEX_FILE = `${WORKLOG_DIR}/index.json`;
+let _SCOPE_FILE = `${WORKLOG_DIR}/scope.json`;
 const CHECKPOINT_THRESHOLD = 50;
 
 // Monorepo depth limit (configurable via env var)
@@ -4062,11 +4064,55 @@ function handleError(e: unknown, json: boolean): never {
 }
 
 /**
+ * Apply -C and --worklog-dir global options.
+ * Returns true if an explicit worklog dir was set (skip scope resolution).
+ */
+function applyDirOptions(
+  cDir: string | undefined,
+  worklogDir: string | undefined,
+): boolean {
+  // Reset to defaults (needed when main() is called multiple times, e.g. tests)
+  WORKLOG_DIR = DEFAULT_WORKLOG_DIR;
+  TASKS_DIR = `${DEFAULT_WORKLOG_DIR}/tasks`;
+  INDEX_FILE = `${DEFAULT_WORKLOG_DIR}/index.json`;
+  _SCOPE_FILE = `${DEFAULT_WORKLOG_DIR}/scope.json`;
+
+  if (cDir) {
+    Deno.chdir(resolve(Deno.cwd(), cDir));
+  }
+
+  if (worklogDir) {
+    const resolved = resolve(Deno.cwd(), worklogDir);
+    const parent = dirname(resolved);
+    const base = basename(resolved);
+    Deno.chdir(parent);
+    WORKLOG_DIR = base;
+    TASKS_DIR = `${base}/tasks`;
+    INDEX_FILE = `${base}/index.json`;
+    _SCOPE_FILE = `${base}/scope.json`;
+    return true; // explicit worklog dir → skip scope resolution
+  }
+
+  return false;
+}
+
+/**
  * Resolve scope and change to scope directory if needed
  */
 async function resolveScopeContext(
   scopeFlag: string | undefined,
+  cDir?: string,
+  worklogDir?: string,
 ): Promise<{ cwd: string; gitRoot: string | null }> {
+  const explicitWorklog = applyDirOptions(cDir, worklogDir);
+
+  if (explicitWorklog) {
+    if (scopeFlag) {
+      throw new WtError("invalid_args", "Cannot use --scope with --worklog-dir");
+    }
+    return { cwd: Deno.cwd(), gitRoot: null };
+  }
+
   const cwd = Deno.cwd();
   const gitRoot = await findGitRoot(cwd);
 
@@ -4117,7 +4163,7 @@ const todoListCmd = new Command()
   .option("--scope <scope:string>", "Target specific scope")
   .action(async (options, taskId) => {
     try {
-      await resolveScopeContext(options.scope);
+      await resolveScopeContext(options.scope, options.cwd, options.worklogDir);
       const output = await cmdTodoList(taskId);
       console.log(
         options.json ? JSON.stringify(output) : formatTodoList(output),
@@ -4134,7 +4180,7 @@ const todoAddCmd = new Command()
   .option("--scope <scope:string>", "Target specific scope")
   .action(async (options, taskId, ...textParts) => {
     try {
-      await resolveScopeContext(options.scope);
+      await resolveScopeContext(options.scope, options.cwd, options.worklogDir);
       const text = textParts.join(" ");
       const output = await cmdTodoAdd(taskId, text);
       console.log(
@@ -4152,7 +4198,7 @@ const todoSetCmd = new Command()
   .option("--scope <scope:string>", "Target specific scope")
   .action(async (options, ...args) => {
     try {
-      await resolveScopeContext(options.scope);
+      await resolveScopeContext(options.scope, options.cwd, options.worklogDir);
       // Parse key=value pairs and todo-id
       const updates: Record<string, string> = {};
       let todoId = "";
@@ -4184,7 +4230,7 @@ const todoNextCmd = new Command()
   .option("--scope <scope:string>", "Target specific scope")
   .action(async (options, taskId) => {
     try {
-      await resolveScopeContext(options.scope);
+      await resolveScopeContext(options.scope, options.cwd, options.worklogDir);
       const todo = await cmdTodoNext(taskId);
       console.log(options.json ? JSON.stringify(todo) : formatTodoNext(todo));
     } catch (e) {
@@ -4213,6 +4259,7 @@ const scopesListCmd = new Command()
   .option("--refresh", "Force rescan of scopes")
   .action(async (options, scopeId) => {
     try {
+      applyDirOptions(options.cwd, options.worklogDir);
       const cwd = Deno.cwd();
       const output = await cmdScopesList(
         cwd,
@@ -4242,6 +4289,7 @@ const scopesAddCmd = new Command()
   .option("--ref <ref:string>", "Git ref for worktree")
   .action(async (options, scopeId, pathArg) => {
     try {
+      applyDirOptions(options.cwd, options.worklogDir);
       const cwd = Deno.cwd();
       const effectivePath = options.path ?? pathArg;
       if (effectivePath && options.worktree) {
@@ -4270,6 +4318,7 @@ const scopesAddParentCmd = new Command()
   .option("--id <id:string>", "Scope ID for this scope")
   .action(async (options, parentPath) => {
     try {
+      applyDirOptions(options.cwd, options.worklogDir);
       const cwd = Deno.cwd();
       const output = await cmdScopesAddParent(parentPath, options.id, cwd);
       console.log(options.json ? JSON.stringify(output) : formatStatus(output));
@@ -4284,6 +4333,7 @@ const scopesRenameCmd = new Command()
   .option("--json", "Output as JSON")
   .action(async (options, scopeId, newId) => {
     try {
+      applyDirOptions(options.cwd, options.worklogDir);
       const cwd = Deno.cwd();
       const output = await cmdScopesRename(scopeId, newId, cwd);
       console.log(options.json ? JSON.stringify(output) : formatStatus(output));
@@ -4303,6 +4353,7 @@ const scopesDeleteCmd = new Command()
   .option("--delete-tasks", "Force delete with tasks")
   .action(async (options, scopeId) => {
     try {
+      applyDirOptions(options.cwd, options.worklogDir);
       const cwd = Deno.cwd();
       const output = await cmdScopesDelete(
         scopeId,
@@ -4322,6 +4373,7 @@ const scopesAssignCmd = new Command()
   .option("--json", "Output as JSON")
   .action(async (options, scopeId, ...taskIds) => {
     try {
+      applyDirOptions(options.cwd, options.worklogDir);
       const cwd = Deno.cwd();
       const output = await cmdScopesAssign(scopeId, taskIds, cwd);
       console.log(options.json ? JSON.stringify(output) : formatAssign(output));
@@ -4336,6 +4388,7 @@ const scopesSyncWorktreesCmd = new Command()
   .option("--dry-run", "Preview changes without applying")
   .action(async (options) => {
     try {
+      applyDirOptions(options.cwd, options.worklogDir);
       const cwd = Deno.cwd();
       const output = await cmdScopesSyncWorktrees(cwd, options.dryRun ?? false);
       if (options.json) {
@@ -4372,6 +4425,7 @@ const scopesCmd = new Command()
   .action(async function (options) {
     // Default action: list scopes
     try {
+      applyDirOptions(options.cwd, options.worklogDir);
       const cwd = Deno.cwd();
       const output = await cmdScopesList(cwd, false, undefined);
       if ("taskCount" in output) {
@@ -4404,6 +4458,7 @@ const initCmd = new Command()
   .option("--json", "Output as JSON")
   .action(async (options) => {
     try {
+      applyDirOptions(options.cwd, options.worklogDir);
       const output = await cmdInit();
       console.log(options.json ? JSON.stringify(output) : formatStatus(output));
     } catch (e) {
@@ -4431,7 +4486,7 @@ const taskCreateCmd = new Command()
   })
   .action(async (options, desc) => {
     try {
-      await resolveScopeContext(options.scope);
+      await resolveScopeContext(options.scope, options.cwd, options.worklogDir);
       const todos = options.todo ?? [];
       let timestampValue: string | undefined;
       if (options.timestamp) {
@@ -4489,7 +4544,7 @@ const createCmd = new Command()
   })
   .action(async (options, name, desc) => {
     try {
-      await resolveScopeContext(options.scope);
+      await resolveScopeContext(options.scope, options.cwd, options.worklogDir);
 
       // Validate: can't have both --ready and --started
       if (options.ready && options.started) {
@@ -4562,7 +4617,7 @@ const traceCmd = new Command()
   })
   .action(async (options, taskId, message) => {
     try {
-      await resolveScopeContext(options.scope);
+      await resolveScopeContext(options.scope, options.cwd, options.worklogDir);
       let timestampValue: string | undefined;
       if (options.timestamp) {
         try {
@@ -4599,7 +4654,7 @@ const showCmd = new Command()
   .option("--active", "Show only active todos (exclude done/cancelled)")
   .action(async (options, taskId) => {
     try {
-      await resolveScopeContext(options.scope);
+      await resolveScopeContext(options.scope, options.cwd, options.worklogDir);
       const output = await cmdShow(taskId, options.active ?? false);
       console.log(options.json ? JSON.stringify(output) : formatShow(output));
     } catch (e) {
@@ -4614,7 +4669,7 @@ const tracesCmd = new Command()
   .option("--scope <scope:string>", "Target specific scope")
   .action(async (options, taskId) => {
     try {
-      await resolveScopeContext(options.scope);
+      await resolveScopeContext(options.scope, options.cwd, options.worklogDir);
       const output = await cmdTraces(taskId);
       console.log(options.json ? JSON.stringify(output) : formatTraces(output));
     } catch (e) {
@@ -4631,7 +4686,7 @@ const checkpointCmd = new Command()
   .option("-t, --timestamp <ts:string>", "Timestamp (currently ignored)")
   .action(async (options, taskId, changes, learnings) => {
     try {
-      await resolveScopeContext(options.scope);
+      await resolveScopeContext(options.scope, options.cwd, options.worklogDir);
       const output = await cmdCheckpoint(
         taskId,
         changes,
@@ -4659,7 +4714,7 @@ const doneCmd = new Command()
   })
   .action(async (options, taskId, changes, learnings) => {
     try {
-      await resolveScopeContext(options.scope);
+      await resolveScopeContext(options.scope, options.cwd, options.worklogDir);
       const metadata = parseMetaOption(options.meta);
       const output = await cmdDone(
         taskId,
@@ -4681,7 +4736,7 @@ const readyCmd = new Command()
   .option("--scope <scope:string>", "Target specific scope")
   .action(async (options, taskId) => {
     try {
-      await resolveScopeContext(options.scope);
+      await resolveScopeContext(options.scope, options.cwd, options.worklogDir);
       const output = await cmdReady(taskId);
       console.log(options.json ? JSON.stringify(output) : formatStatus(output));
     } catch (e) {
@@ -4696,7 +4751,7 @@ const startCmd = new Command()
   .option("--scope <scope:string>", "Target specific scope")
   .action(async (options, taskId) => {
     try {
-      await resolveScopeContext(options.scope);
+      await resolveScopeContext(options.scope, options.cwd, options.worklogDir);
       const output = await cmdStart(taskId);
       console.log(options.json ? JSON.stringify(output) : formatStatus(output));
     } catch (e) {
@@ -4713,7 +4768,7 @@ const updateCmd = new Command()
   .option("--desc <desc:string>", "New description for the task")
   .action(async (options, taskId) => {
     try {
-      await resolveScopeContext(options.scope);
+      await resolveScopeContext(options.scope, options.cwd, options.worklogDir);
       const output = await cmdUpdate(taskId, options.name, options.desc);
       console.log(options.json ? JSON.stringify(output) : formatStatus(output));
     } catch (e) {
@@ -4728,7 +4783,7 @@ const cancelCmd = new Command()
   .option("--scope <scope:string>", "Target specific scope")
   .action(async (options, taskId, reason) => {
     try {
-      await resolveScopeContext(options.scope);
+      await resolveScopeContext(options.scope, options.cwd, options.worklogDir);
       const output = await cmdCancel(taskId, reason);
       console.log(options.json ? JSON.stringify(output) : formatStatus(output));
     } catch (e) {
@@ -4746,7 +4801,7 @@ const metaCmd = new Command()
   .option("--delete <key:string>", "Delete a metadata key")
   .action(async (options, taskId, key, value) => {
     try {
-      await resolveScopeContext(options.scope);
+      await resolveScopeContext(options.scope, options.cwd, options.worklogDir);
       const output = await cmdMeta(taskId, key, value, options.delete);
       console.log(options.json ? JSON.stringify(output) : formatMeta(output));
     } catch (e) {
@@ -4775,6 +4830,34 @@ const listCmd = new Command()
       if (options.started) statusFilters.push("started");
       if (options.done) statusFilters.push("done");
       if (options.cancelled) statusFilters.push("cancelled");
+
+      const explicitWorklog = applyDirOptions(options.cwd, options.worklogDir);
+
+      if (explicitWorklog) {
+        if (options.scope) {
+          throw new WtError("invalid_args", "Cannot use --scope with --worklog-dir");
+        }
+        if (options.allScopes) {
+          throw new WtError("invalid_args", "Cannot use --all-scopes with --worklog-dir");
+        }
+        if (options.path) {
+          throw new WtError("invalid_args", "Cannot use --path with --worklog-dir");
+        }
+        const output = await cmdList(
+          options.all ?? false,
+          WORKLOG_DIR,
+          undefined,
+          false,
+          null,
+          undefined,
+          Deno.cwd(),
+          statusFilters.length > 0 ? statusFilters : undefined,
+        );
+        console.log(
+          options.json ? JSON.stringify(output) : formatList(output, options.all),
+        );
+        return;
+      }
 
       const cwd = Deno.cwd();
       const gitRoot = await findGitRoot(cwd);
@@ -4810,6 +4893,7 @@ const summaryCmd = new Command()
   .option("--since <date:string>", "Filter by date (YYYY-MM-DD)")
   .action(async (options) => {
     try {
+      applyDirOptions(options.cwd, options.worklogDir);
       const output = await cmdSummary(options.since ?? null);
       console.log(
         options.json ? JSON.stringify(output) : formatSummary(output),
@@ -4830,6 +4914,7 @@ const importCmd = new Command()
   .option("--rm", "Remove imported tasks from source")
   .action(async (options) => {
     try {
+      applyDirOptions(options.cwd, options.worklogDir);
       if (options.path && options.branch) {
         throw new WtError(
           "invalid_args",
@@ -4877,6 +4962,8 @@ const cli = new Command()
       '  - Use -t for batch tracing: wl trace <id> -t T14:30 "msg"\n\n' +
       "See 'wl <command> --help' for details",
   )
+  .globalOption("-C, --cwd <dir:string>", "Change to directory before doing anything")
+  .globalOption("--worklog-dir <path:string>", "Path to .worklog directory (relative to -C if set)")
   .command("init", initCmd)
   .command("create", createCmd)
   .command("ready", readyCmd)
