@@ -201,12 +201,15 @@ Concatenates files. Outputs to stdout (use `> file.md` to save).
 ### meta
 
 ```bash
-md meta <file> [key] [--set key value] [--del key] [--h1]
+md meta <file> [key] [--set key value] [--del key] [--h1] [--json]
+md meta --list <fields> <files...> [--json]
+md meta --aggregate <fields> <files...> [--json]
+md meta --count <fields> <files...> [--json]
 ```
 
-Manipulates YAML frontmatter.
+Manipulates YAML frontmatter (single file) or aggregates metadata across files.
 
-**Examples:**
+**Single-file examples:**
 
 ```bash
 md meta doc.md                  # Show all YAML
@@ -216,6 +219,41 @@ md meta doc.md tags.0           # Array access
 md meta doc.md --set key value  # Set (creates intermediates)
 md meta doc.md --del key        # Delete
 md meta doc.md --h1             # Get h1 title
+```
+
+**Multi-file aggregation:**
+
+- `--list <fields>`: Collect all values (with duplicates)
+- `--aggregate <fields>`: Unique values with occurrence counts (sorted by count desc)
+- `--count <fields>`: Total count only
+
+Fields can be comma-separated for multiple fields. Files accept glob patterns.
+
+```bash
+md meta --list tags *.md              # foo, bar, bar, baz
+md meta --aggregate tags *.md         # 3 foo / 2 bar / 1 baz
+md meta --aggregate tags --json *.md  # {"foo":3,"bar":2,"baz":1}
+md meta --count tags *.md             # 8
+md meta --count tags --json *.md      # 8
+```
+
+**Multiple fields** are grouped:
+
+```bash
+md meta --aggregate tags,category *.md
+# tags:
+#   3 foo
+#   2 bar
+# category:
+#   2 tech
+#   1 science
+
+md meta --count tags,category *.md
+# tags: 8
+# category: 3
+
+md meta --count tags,category --json *.md
+# {"tags":8,"category":3}
 ```
 
 ### create

@@ -54,6 +54,21 @@ md meta doc.md --set key "value"
 md meta doc.md --del key
 md meta doc.md --h1                 # get h1 title
 
+# meta: multi-file aggregation
+md meta --list tags *.md            # all values (with duplicates)
+md meta --aggregate tags *.md       # unique values with counts
+# → 3 foo
+# → 2 bar
+# → 1 baz
+md meta --aggregate tags,category *.md  # grouped by field
+# → tags:
+# →   3 foo
+# →   2 bar
+# → category:
+# →   2 tech
+md meta --count tags *.md           # total count only → 8
+md meta --count tags,category *.md  # per field → tags: 8 / category: 3
+
 # create: new file
 md create doc.md --title "Project" --meta author="John" "Initial content"
 

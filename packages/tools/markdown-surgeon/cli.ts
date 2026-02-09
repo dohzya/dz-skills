@@ -34,7 +34,7 @@ import { expandMagic } from "./magic.ts";
 // Version
 // ============================================================================
 
-const VERSION = "0.5.1";
+const VERSION = "0.5.2";
 
 // ============================================================================
 // Output formatters (text)
@@ -273,6 +273,53 @@ async function aggregateMetadata(
   }
 
   return allValues;
+}
+
+/**
+ * Aggregate metadata values with counts, grouped by field
+ * Returns a map: field -> (value -> count)
+ */
+async function aggregateMetadataWithCounts(
+  files: string[],
+  fields: string[],
+): Promise<Map<string, Map<string, number>>> {
+  const fieldCounts = new Map<string, Map<string, number>>();
+
+  // Initialize maps for each field
+  for (const field of fields) {
+    fieldCounts.set(field, new Map<string, number>());
+  }
+
+  for (const file of files) {
+    try {
+      const content = await readFile(file);
+      const doc = await parseDocument(content);
+      const yamlContent = getFrontmatterContent(doc);
+      const meta = parseFrontmatter(yamlContent);
+
+      // Extract values for each field
+      for (const field of fields) {
+        const value = getNestedValue(meta, field);
+
+        if (value === undefined || value === null) {
+          continue;
+        }
+
+        const counts = fieldCounts.get(field)!;
+        const values = Array.isArray(value) ? value : [value];
+
+        for (const v of values) {
+          const key = typeof v === "object" ? JSON.stringify(v) : String(v);
+          counts.set(key, (counts.get(key) ?? 0) + 1);
+        }
+      }
+    } catch {
+      // Skip files with errors, continue processing others
+      continue;
+    }
+  }
+
+  return fieldCounts;
 }
 
 // ============================================================================
@@ -689,29 +736,28 @@ async function cmdMeta(
   del: boolean,
   getH1: boolean,
   list: string | null,
-  set: string | null,
+  aggregate: string | null,
+  count: string | null,
   json: boolean,
 ): Promise<string> {
-  // Multi-file aggregation mode
-  const aggregateField = list ?? set;
-  if (aggregateField !== null) {
+  // --list mode: concat with duplicates
+  if (list !== null) {
     const files = Array.isArray(file) ? file : [file];
-    const fields = aggregateField.split(",").map((f) => f.trim());
-    const mode = list !== null ? "list" : "set";
+    const fields = list.split(",").map((f) => f.trim());
 
     // Error checks
     if (del || value !== null) {
       throw new MdError(
         "parse_error",
-        "Cannot use --set/--del with --list/--set aggregation",
+        "Cannot use --set/--del with --list",
       );
     }
 
     // Expand file patterns
     const expandedFiles = await expandFilePatterns(files);
 
-    // Aggregate metadata
-    const values = await aggregateMetadata(expandedFiles, fields, mode);
+    // Aggregate metadata (with duplicates)
+    const values = await aggregateMetadata(expandedFiles, fields, "list");
 
     // Format output
     if (json) {
@@ -721,11 +767,111 @@ async function cmdMeta(
     }
   }
 
+  // --aggregate mode: unique values with counts
+  if (aggregate !== null) {
+    const files = Array.isArray(file) ? file : [file];
+    const fields = aggregate.split(",").map((f) => f.trim());
+
+    // Error checks
+    if (del || value !== null) {
+      throw new MdError(
+        "parse_error",
+        "Cannot use --set/--del with --aggregate",
+      );
+    }
+
+    // Expand file patterns
+    const expandedFiles = await expandFilePatterns(files);
+
+    // Aggregate metadata with counts
+    const fieldCounts = await aggregateMetadataWithCounts(
+      expandedFiles,
+      fields,
+    );
+
+    // Format output
+    if (json) {
+      // JSON format: { field: { value: count, ... }, ... }
+      const result: Record<string, Record<string, number>> = {};
+      for (const [field, counts] of fieldCounts.entries()) {
+        result[field] = Object.fromEntries(counts.entries());
+      }
+      return JSON.stringify(fields.length === 1 ? result[fields[0]] : result);
+    } else {
+      // Text format: group by field, sort by count desc
+      const lines: string[] = [];
+      for (const field of fields) {
+        const counts = fieldCounts.get(field)!;
+        if (fields.length > 1) {
+          lines.push(`${field}:`);
+        }
+        const sorted = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
+        for (const [value, count] of sorted) {
+          const prefix = fields.length > 1 ? "  " : "";
+          lines.push(`${prefix}${count} ${value}`);
+        }
+      }
+      return lines.join("\n");
+    }
+  }
+
+  // --count mode: total counts only
+  if (count !== null) {
+    const files = Array.isArray(file) ? file : [file];
+    const fields = count.split(",").map((f) => f.trim());
+
+    // Error checks
+    if (del || value !== null) {
+      throw new MdError(
+        "parse_error",
+        "Cannot use --set/--del with --count",
+      );
+    }
+
+    // Expand file patterns
+    const expandedFiles = await expandFilePatterns(files);
+
+    // Aggregate metadata with counts
+    const fieldCounts = await aggregateMetadataWithCounts(
+      expandedFiles,
+      fields,
+    );
+
+    // Calculate totals
+    if (json) {
+      // JSON format: { field: count, ... } or just count for single field
+      const totals: Record<string, number> = {};
+      for (const [field, counts] of fieldCounts.entries()) {
+        totals[field] = Array.from(counts.values()).reduce(
+          (sum, c) => sum + c,
+          0,
+        );
+      }
+      return JSON.stringify(fields.length === 1 ? totals[fields[0]] : totals);
+    } else {
+      // Text format
+      const lines: string[] = [];
+      for (const field of fields) {
+        const counts = fieldCounts.get(field)!;
+        const total = Array.from(counts.values()).reduce(
+          (sum, c) => sum + c,
+          0,
+        );
+        if (fields.length > 1) {
+          lines.push(`${field}: ${total}`);
+        } else {
+          lines.push(String(total));
+        }
+      }
+      return lines.join("\n");
+    }
+  }
+
   // Single-file mode (existing logic)
   if (Array.isArray(file)) {
     throw new MdError(
       "parse_error",
-      "Multiple files require --list or --set flag",
+      "Multiple files require --list, --aggregate, or --count flag",
     );
   }
 
@@ -1080,7 +1226,11 @@ const metaCmd = new Command()
   )
   .option(
     "--aggregate <fields:string>",
-    "List unique metadata from multiple files (deduplicated)",
+    "Show unique metadata values with counts from multiple files",
+  )
+  .option(
+    "--count <fields:string>",
+    "Show total count only from multiple files",
   )
   .option("--set", "Set a key (single file only)")
   .option("--del", "Delete a key (single file only)")
@@ -1092,8 +1242,8 @@ const metaCmd = new Command()
       let key: string | null = null;
       let value: string | null = null;
 
-      if (options.list || options.aggregate) {
-        // Aggregation mode: all args are files
+      if (options.list || options.aggregate || options.count) {
+        // Multi-file mode: all args are files
         file = [fileOrKey, ...args];
       } else {
         // Single file mode
@@ -1115,6 +1265,7 @@ const metaCmd = new Command()
         options.h1 ?? false,
         options.list ?? null,
         options.aggregate ?? null,
+        options.count ?? null,
         options.json ?? false,
       );
       if (output) console.log(output);

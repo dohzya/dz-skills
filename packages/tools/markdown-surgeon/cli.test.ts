@@ -534,7 +534,7 @@ Deno.test("md meta --h1 - gets H1 title", async () => {
 // CLI meta aggregation tests
 // ============================================================================
 
-Deno.test("md meta --aggregate - aggregates unique tags from multiple files", async () => {
+Deno.test("md meta --aggregate - aggregates unique tags with counts from multiple files", async () => {
   const file1 = await createTempFile(`---\ntags: [foo, bar]\n---\n# File 1`);
   const file2 = await createTempFile(`---\ntags: [bar, baz]\n---\n# File 2`);
   const file3 = await createTempFile(`---\ntags: [qux]\n---\n# File 3`);
@@ -542,8 +542,11 @@ Deno.test("md meta --aggregate - aggregates unique tags from multiple files", as
     const output = await captureOutput(() =>
       main(["meta", "--aggregate", "tags", file1, file2, file3])
     );
-    const lines = output.trim().split("\n").sort();
-    assertEquals(lines, ["bar", "baz", "foo", "qux"]);
+    // Now shows counts: "2 bar", "1 foo", "1 baz", "1 qux"
+    assertStringIncludes(output, "2 bar");
+    assertStringIncludes(output, "1 foo");
+    assertStringIncludes(output, "1 baz");
+    assertStringIncludes(output, "1 qux");
   } finally {
     await Deno.remove(file1);
     await Deno.remove(file2);
@@ -567,7 +570,7 @@ Deno.test("md meta --list - aggregates tags with duplicates", async () => {
   }
 });
 
-Deno.test("md meta --aggregate - aggregates multiple fields", async () => {
+Deno.test("md meta --aggregate - aggregates multiple fields with counts", async () => {
   const file1 = await createTempFile(
     `---\ntags: [foo]\ncategories: [tech]\n---\n# File 1`,
   );
@@ -578,24 +581,31 @@ Deno.test("md meta --aggregate - aggregates multiple fields", async () => {
     const output = await captureOutput(() =>
       main(["meta", "--aggregate", "tags,categories", file1, file2])
     );
-    const lines = output.trim().split("\n").sort();
-    assertEquals(lines, ["bar", "foo", "science", "tech"]);
+    // Groups by field with counts
+    assertStringIncludes(output, "tags:");
+    assertStringIncludes(output, "1 foo");
+    assertStringIncludes(output, "1 bar");
+    assertStringIncludes(output, "categories:");
+    assertStringIncludes(output, "1 tech");
+    assertStringIncludes(output, "1 science");
   } finally {
     await Deno.remove(file1);
     await Deno.remove(file2);
   }
 });
 
-Deno.test("md meta --aggregate --json - outputs JSON array", async () => {
+Deno.test("md meta --aggregate --json - outputs JSON with counts", async () => {
   const file1 = await createTempFile(`---\ntags: [foo, bar]\n---\n# File 1`);
   const file2 = await createTempFile(`---\ntags: [baz]\n---\n# File 2`);
   try {
     const output = await captureOutput(() =>
       main(["meta", "--aggregate", "tags", file1, file2, "--json"])
     );
-    const values = JSON.parse(output);
-    assertEquals(Array.isArray(values), true);
-    assertEquals(values.sort(), ["bar", "baz", "foo"]);
+    const counts = JSON.parse(output);
+    assertEquals(typeof counts, "object");
+    assertEquals(counts.foo, 1);
+    assertEquals(counts.bar, 1);
+    assertEquals(counts.baz, 1);
   } finally {
     await Deno.remove(file1);
     await Deno.remove(file2);
@@ -610,8 +620,9 @@ Deno.test("md meta --aggregate - skips files without frontmatter", async () => {
     const output = await captureOutput(() =>
       main(["meta", "--aggregate", "tags", file1, file2, file3])
     );
-    const lines = output.trim().split("\n").sort();
-    assertEquals(lines, ["bar", "foo"]);
+    // Now shows counts
+    assertStringIncludes(output, "1 foo");
+    assertStringIncludes(output, "1 bar");
   } finally {
     await Deno.remove(file1);
     await Deno.remove(file2);
@@ -628,8 +639,7 @@ Deno.test("md meta --aggregate - skips files where field doesn't exist", async (
     const output = await captureOutput(() =>
       main(["meta", "--aggregate", "tags", file1, file2])
     );
-    const lines = output.trim().split("\n");
-    assertEquals(lines, ["foo"]);
+    assertEquals(output.trim(), "1 foo");
   } finally {
     await Deno.remove(file1);
     await Deno.remove(file2);
@@ -643,8 +653,9 @@ Deno.test("md meta --aggregate - handles non-array values", async () => {
     const output = await captureOutput(() =>
       main(["meta", "--aggregate", "tags", file1, file2])
     );
-    const lines = output.trim().split("\n").sort();
-    assertEquals(lines, ["array-tag", "single-tag"]);
+    // Now shows counts
+    assertStringIncludes(output, "1 single-tag");
+    assertStringIncludes(output, "1 array-tag");
   } finally {
     await Deno.remove(file1);
     await Deno.remove(file2);
@@ -662,8 +673,9 @@ Deno.test("md meta --aggregate - works with glob patterns", async () => {
     const output = await captureOutput(() =>
       main(["meta", "--aggregate", "tags", `${tmpDir}/*.md`])
     );
-    const lines = output.trim().split("\n").sort();
-    assertEquals(lines, ["bar", "foo"]);
+    // Now shows counts
+    assertStringIncludes(output, "1 foo");
+    assertStringIncludes(output, "1 bar");
   } finally {
     await Deno.remove(tmpDir, { recursive: true });
   }
@@ -680,8 +692,115 @@ Deno.test("md meta --aggregate - handles nested field access", async () => {
     const output = await captureOutput(() =>
       main(["meta", "--aggregate", "meta.tags", file1, file2])
     );
-    const lines = output.trim().split("\n").sort();
-    assertEquals(lines, ["bar", "foo"]);
+    // Now shows counts
+    assertStringIncludes(output, "1 foo");
+    assertStringIncludes(output, "1 bar");
+  } finally {
+    await Deno.remove(file1);
+    await Deno.remove(file2);
+  }
+});
+
+Deno.test("md meta --aggregate - shows values with counts", async () => {
+  const file1 = await createTempFile(`---\ntags: [foo, bar]\n---\n# File 1`);
+  const file2 = await createTempFile(`---\ntags: [bar, baz]\n---\n# File 2`);
+  const file3 = await createTempFile(`---\ntags: [foo]\n---\n# File 3`);
+  try {
+    const output = await captureOutput(() =>
+      main(["meta", "--aggregate", "tags", file1, file2, file3])
+    );
+    // Should show counts in descending order: 2 foo, 2 bar, 1 baz
+    assertStringIncludes(output, "2 foo");
+    assertStringIncludes(output, "2 bar");
+    assertStringIncludes(output, "1 baz");
+  } finally {
+    await Deno.remove(file1);
+    await Deno.remove(file2);
+    await Deno.remove(file3);
+  }
+});
+
+Deno.test("md meta --aggregate --json - outputs counts as JSON", async () => {
+  const file1 = await createTempFile(`---\ntags: [foo, bar]\n---\n# File 1`);
+  const file2 = await createTempFile(`---\ntags: [bar, baz]\n---\n# File 2`);
+  try {
+    const output = await captureOutput(() =>
+      main(["meta", "--aggregate", "tags", "--json", file1, file2])
+    );
+    const result = JSON.parse(output);
+    assertEquals(result.foo, 1);
+    assertEquals(result.bar, 2);
+    assertEquals(result.baz, 1);
+  } finally {
+    await Deno.remove(file1);
+    await Deno.remove(file2);
+  }
+});
+
+Deno.test("md meta --aggregate - groups by field when multiple", async () => {
+  const file1 = await createTempFile(
+    `---\ntags: [foo]\ncategory: tech\n---\n# File 1`,
+  );
+  const file2 = await createTempFile(
+    `---\ntags: [foo, bar]\ncategory: tech\n---\n# File 2`,
+  );
+  try {
+    const output = await captureOutput(() =>
+      main(["meta", "--aggregate", "tags,category", file1, file2])
+    );
+    assertStringIncludes(output, "tags:");
+    assertStringIncludes(output, "  2 foo");
+    assertStringIncludes(output, "  1 bar");
+    assertStringIncludes(output, "category:");
+    assertStringIncludes(output, "  2 tech");
+  } finally {
+    await Deno.remove(file1);
+    await Deno.remove(file2);
+  }
+});
+
+Deno.test("md meta --count - shows total count only", async () => {
+  const file1 = await createTempFile(`---\ntags: [foo, bar]\n---\n# File 1`);
+  const file2 = await createTempFile(`---\ntags: [bar, baz]\n---\n# File 2`);
+  try {
+    const output = await captureOutput(() =>
+      main(["meta", "--count", "tags", file1, file2])
+    );
+    assertEquals(output.trim(), "4"); // foo, bar, bar, baz (total)
+  } finally {
+    await Deno.remove(file1);
+    await Deno.remove(file2);
+  }
+});
+
+Deno.test("md meta --count --json - outputs total as JSON", async () => {
+  const file1 = await createTempFile(`---\ntags: [foo, bar]\n---\n# File 1`);
+  const file2 = await createTempFile(`---\ntags: [bar]\n---\n# File 2`);
+  try {
+    const output = await captureOutput(() =>
+      main(["meta", "--count", "tags", "--json", file1, file2])
+    );
+    const result = JSON.parse(output);
+    assertEquals(result, 3); // foo, bar, bar
+  } finally {
+    await Deno.remove(file1);
+    await Deno.remove(file2);
+  }
+});
+
+Deno.test("md meta --count - groups by field when multiple", async () => {
+  const file1 = await createTempFile(
+    `---\ntags: [foo]\ncategory: tech\n---\n# File 1`,
+  );
+  const file2 = await createTempFile(
+    `---\ntags: [bar]\ncategory: tech\n---\n# File 2`,
+  );
+  try {
+    const output = await captureOutput(() =>
+      main(["meta", "--count", "tags,category", file1, file2])
+    );
+    assertStringIncludes(output, "tags: 2");
+    assertStringIncludes(output, "category: 2");
   } finally {
     await Deno.remove(file1);
     await Deno.remove(file2);
