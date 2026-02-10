@@ -22,6 +22,7 @@ export interface TaskMeta {
   last_checkpoint: string | null; // ISO 8601 timestamp
   has_uncheckpointed_entries: boolean;
   metadata?: Record<string, string>; // Custom attributes like commit_id, pr_url, etc.
+  tags?: string[]; // User-defined hierarchical tags for flexible organization
 }
 
 export interface IndexEntry {
@@ -32,6 +33,7 @@ export interface IndexEntry {
   status_updated_at: string; // ISO 8601 - last status change
   done_at?: string | null;
   cancelled_at?: string | null;
+  tags?: string[]; // Denormalized from task frontmatter for fast filtering
 }
 
 export interface Index {
@@ -87,6 +89,7 @@ export interface ShowOutput {
   last_checkpoint: Checkpoint | null;
   entries_since_checkpoint: Entry[];
   todos: Todo[];
+  tags?: string[]; // Effective tags (task + inherited worktree tags)
 }
 
 export interface ListTaskItem {
@@ -96,6 +99,8 @@ export interface ListTaskItem {
   status: TaskStatus;
   created: string;
   scopePrefix?: string;
+  tags?: string[];
+  filterPattern?: string; // Pattern used for filtering (to hide from display)
 }
 
 export interface ListOutput {
@@ -139,6 +144,7 @@ export interface ScopeEntry {
   id: string; // Display ID (defaults to path or git ref)
   type?: ScopeType; // "path" (default) or "worktree"
   gitRef?: string; // Git ref for worktree scopes (e.g., "feature/xyz")
+  tags?: string[]; // Worktree-level tags inherited by all tasks in this scope
 }
 
 export interface ScopeConfigParent {

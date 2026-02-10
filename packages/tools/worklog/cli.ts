@@ -8,6 +8,7 @@ import {
   type ImportOutput,
   type ImportTaskResult,
   type Index,
+  type IndexEntry,
   isValidTaskStatus,
   type ListOutput,
   type MoveOutput,
@@ -44,7 +45,8 @@ import {
   parseFrontmatter,
   stringifyFrontmatter,
 } from "../markdown-surgeon/yaml.ts";
-import { basename, dirname, resolve } from "@std/path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "@std/path";
+import { ensureDir } from "@std/fs";
 import { z } from "@zod/zod/mini";
 
 // ============================================================================
@@ -97,6 +99,7 @@ const TaskMetaSchema = z.object({
   last_checkpoint: z.nullable(z.string()),
   has_uncheckpointed_entries: z.boolean(),
   metadata: z.optional(z.record(z.string(), z.string())),
+  tags: z.optional(z.array(z.string())),
 });
 
 // ============================================================================
@@ -122,6 +125,163 @@ async function getTodosId(): Promise<string> {
     TODOS_ID = await sectionHash(1, "TODO", 0);
   }
   return TODOS_ID;
+}
+
+// ============================================================================
+// Tag validation
+// ============================================================================
+
+/**
+ * Validate a tag according to worklog conventions.
+ *
+ * Rules:
+ * - No whitespace
+ * - Allowed: a-z A-Z 0-9 / - _
+ * - Cannot start/end with /
+ * - Cannot contain //
+ * - Max 100 chars
+ */
+function validateTag(tag: string): string | null {
+  if (!tag || tag.length === 0) return "Tag cannot be empty";
+  if (tag.length > 100) return "Tag too long (max 100 characters)";
+  if (/\s/.test(tag)) return "Tag cannot contain whitespace";
+  if (tag.startsWith("/") || tag.endsWith("/")) {
+    return "Tag cannot start or end with /";
+  }
+  if (tag.includes("//")) return "Tag cannot contain consecutive slashes";
+  if (!/^[a-zA-Z0-9/_-]+$/.test(tag)) {
+    return "Tag contains invalid characters (allowed: a-z A-Z 0-9 / - _)";
+  }
+  return null;
+}
+
+function validateTags(tags: string[]): void {
+  for (const tag of tags) {
+    const error = validateTag(tag);
+    if (error) {
+      throw new WtError("invalid_args", `Invalid tag '${tag}': ${error}`);
+    }
+  }
+}
+
+/**
+ * Check if a tag matches a search pattern hierarchically.
+ *
+ * Examples:
+ *   matchesTagPattern("feat", "feat/auth") → true
+ *   matchesTagPattern("feat", "feat") → true
+ *   matchesTagPattern("feat", "feature") → false
+ *   matchesTagPattern("feat/auth", "feat") → false
+ */
+function matchesTagPattern(pattern: string, tag: string): boolean {
+  if (pattern === tag) return true;
+  return tag.startsWith(pattern + "/");
+}
+
+/**
+ * Check if any tag in array matches pattern.
+ */
+function hasMatchingTag(pattern: string, tags: string[]): boolean {
+  return tags.some((tag) => matchesTagPattern(pattern, tag));
+}
+
+/**
+ * Get effective tags for a task (task tags + inherited worktree tags).
+ * Worktree tags are resolved from scope.json at query time.
+ */
+async function getEffectiveTags(
+  taskTags: string[] | undefined,
+  scopePath: string,
+  gitRoot: string | null,
+): Promise<string[]> {
+  const tags = new Set<string>(taskTags || []);
+
+  if (!gitRoot) return Array.from(tags);
+
+  // Find this scope in parent's scope.json to get worktree tags
+  const scopeJsonPath = join(scopePath, "scope.json");
+  if (!(await exists(scopeJsonPath))) return Array.from(tags);
+
+  const scopeConfig = JSON.parse(
+    await Deno.readTextFile(scopeJsonPath),
+  ) as ScopeConfig;
+
+  // If child scope, load parent to find our tags
+  if ("parent" in scopeConfig) {
+    const parentPath = resolve(dirname(scopePath), scopeConfig.parent);
+    const parentJsonPath = join(parentPath, "scope.json");
+    if (await exists(parentJsonPath)) {
+      const parentConfig = JSON.parse(
+        await Deno.readTextFile(parentJsonPath),
+      ) as ScopeConfigParent;
+      const myEntry = parentConfig.children.find((c) =>
+        resolve(parentPath, c.path) === scopePath
+      );
+      if (myEntry?.tags) {
+        myEntry.tags.forEach((t) => tags.add(t));
+      }
+    }
+  } // If parent scope with our path as a child entry
+  else if ("children" in scopeConfig) {
+    const myEntry = scopeConfig.children.find((c) =>
+      resolve(scopePath, c.path) === scopePath
+    );
+    if (myEntry?.tags) {
+      myEntry.tags.forEach((t) => tags.add(t));
+    }
+  }
+
+  return Array.from(tags).sort();
+}
+
+/**
+ * Find tasks matching tag pattern across all scopes.
+ */
+async function findTasksByTagPattern(
+  pattern: string,
+  gitRoot: string | null,
+  cwd: string,
+): Promise<Array<{ id: string; task: IndexEntry; scopeId: string; scopePath: string }>> {
+  const results = [];
+
+  const scopes = gitRoot
+    ? await discoverScopes(gitRoot, WORKLOG_DEPTH_LIMIT)
+    : [{ absolutePath: join(cwd, WORKLOG_DIR), id: ".", relativePath: ".", isParent: false }];
+
+  for (const scope of scopes) {
+    const indexPath = join(scope.absolutePath, "index.json");
+    if (!(await exists(indexPath))) continue;
+
+    const index = JSON.parse(await Deno.readTextFile(indexPath)) as Index;
+    for (const [id, task] of Object.entries(index.tasks)) {
+      const effectiveTags = await getEffectiveTags(task.tags, scope.absolutePath, gitRoot);
+      if (hasMatchingTag(pattern, effectiveTags)) {
+        results.push({ id, task, scopeId: scope.id, scopePath: scope.absolutePath });
+      }
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Check if current scope is a child worklog.
+ */
+async function isChildWorklog(scopePath: string): Promise<boolean> {
+  const scopeJsonPath = join(scopePath, "scope.json");
+  if (!(await exists(scopeJsonPath))) return false;
+
+  const config = JSON.parse(await Deno.readTextFile(scopeJsonPath)) as ScopeConfig;
+  return "parent" in config;
+}
+
+/**
+ * Get parent scope path from child scope.json.
+ */
+async function getParentScope(childPath: string): Promise<string> {
+  const scopeJsonPath = join(childPath, "scope.json");
+  const config = JSON.parse(await Deno.readTextFile(scopeJsonPath)) as ScopeConfigChild;
+  return resolve(dirname(childPath), config.parent);
 }
 
 // ============================================================================
@@ -1053,6 +1213,27 @@ async function saveTaskContent(taskId: string, content: string): Promise<void> {
   await writeFile(taskFilePath(taskId), content);
 }
 
+async function loadTaskContentFrom(taskId: string, worklogPath: string): Promise<string> {
+  const path = `${worklogPath}/tasks/${taskId}.md`;
+  if (!(await exists(path))) {
+    throw new WtError("task_not_found", `Task not found: ${taskId}`);
+  }
+  return await Deno.readTextFile(path);
+}
+
+async function saveTaskContentTo(
+  taskId: string,
+  content: string,
+  worklogPath: string,
+): Promise<void> {
+  await Deno.writeTextFile(`${worklogPath}/tasks/${taskId}.md`, content);
+}
+
+async function saveIndexTo(index: Index, worklogPath: string): Promise<void> {
+  const indexPath = `${worklogPath}/index.json`;
+  await Deno.writeTextFile(indexPath, JSON.stringify(index, null, 2));
+}
+
 function assertActive(meta: TaskMeta): void {
   if (meta.status === "done") {
     throw new WtError(
@@ -1457,6 +1638,9 @@ function formatShow(output: ShowOutput): string {
   lines.push(`full id: ${output.fullId}`);
   lines.push(`name: ${output.name}`);
   lines.push(`status: ${output.status}`);
+  if (output.tags && output.tags.length > 0) {
+    lines.push(`tags: ${output.tags.map((t) => `#${t}`).join(" ")}`);
+  }
 
   // History
   lines.push("history:");
@@ -1574,8 +1758,31 @@ function formatList(output: ListOutput, showAll = false): string {
   return sortedTasks
     .map((t) => {
       const shortId = getShortId(t.id, allIds);
-      const prefix = t.scopePrefix ? `[${t.scopePrefix}]  ` : "";
-      return `${prefix}${shortId}  ${t.status}  "${t.name}"  ${t.created}`;
+
+      // Filter scope prefix if it matches the filter pattern
+      let prefix = "";
+      if (t.scopePrefix && (!t.filterPattern || t.scopePrefix !== t.filterPattern)) {
+        prefix = `[${t.scopePrefix}]  `;
+      }
+
+      // Filter tags - exclude the exact match of filterPattern, but keep children
+      let tagsToShow = t.tags || [];
+      if (t.filterPattern && t.tags) {
+        tagsToShow = t.tags.filter((tag) => {
+          // Exclude exact match
+          if (tag === t.filterPattern) return false;
+          // Exclude if filterPattern is a child of this tag (shouldn't happen but be safe)
+          if (t.filterPattern!.startsWith(tag + "/")) return false;
+          // Include everything else (including children of filterPattern like foo/bar when filtering by foo)
+          return true;
+        });
+      }
+
+      const tagsStr = tagsToShow.length > 0
+        ? tagsToShow.map((tag) => `#${tag}`).join(" ") + "  "
+        : "";
+
+      return `${prefix}${tagsStr}${shortId}  ${t.status}  "${t.name}"  ${t.created}`;
     })
     .join("\n");
 }
@@ -1705,8 +1912,14 @@ async function cmdAdd(
   initialStatus?: TaskStatus,
   todos: string[] = [],
   metadata?: Record<string, string>,
+  tags?: string[],
   timestamp?: string,
 ): Promise<AddOutput> {
+  // Validate tags
+  if (tags && tags.length > 0) {
+    validateTags(tags);
+  }
+
   await autoInit();
   await purge();
 
@@ -1741,6 +1954,15 @@ async function cmdAdd(
     }
   }
 
+  // Build tags section if provided
+  let tagsYaml = "";
+  if (tags && tags.length > 0) {
+    tagsYaml = "\ntags:\n";
+    for (const tag of tags) {
+      tagsYaml += `  - ${tag}\n`;
+    }
+  }
+
   // Set timestamps based on initial status
   let readyAt = "null";
   let startedAt = "null";
@@ -1761,7 +1983,7 @@ ready_at: ${readyAt}
 started_at: ${startedAt}
 done_at: null
 last_checkpoint: null
-has_uncheckpointed_entries: false${metadataYaml}
+has_uncheckpointed_entries: false${metadataYaml}${tagsYaml}
 ---
 
 # Entries
@@ -1779,6 +2001,7 @@ has_uncheckpointed_entries: false${metadataYaml}
     created: now,
     status_updated_at: now,
     done_at: null,
+    ...(tags && tags.length > 0 && { tags }),
   };
   await saveIndex(index);
 
@@ -1931,6 +2154,15 @@ async function cmdShow(
   const allIds = Object.keys(index.tasks);
   const shortId = getShortId(taskId, allIds);
 
+  // Get effective tags (task + inherited worktree tags)
+  const cwd = Deno.cwd();
+  const gitRoot = await findGitRoot(cwd);
+  const effectiveTags = await getEffectiveTags(
+    meta.tags,
+    join(cwd, WORKLOG_DIR),
+    gitRoot,
+  );
+
   return {
     task: shortId,
     fullId: taskId,
@@ -1943,6 +2175,7 @@ async function cmdShow(
     last_checkpoint: lastCheckpoint,
     entries_since_checkpoint: entriesSinceCheckpoint,
     todos: filteredTodos,
+    tags: effectiveTags.length > 0 ? effectiveTags : undefined,
   };
 }
 
@@ -2388,6 +2621,110 @@ async function cmdMeta(
   return { metadata: frontmatter.metadata };
 }
 
+/**
+ * List all unique tags across all scopes with counts.
+ */
+async function cmdListTags(
+  gitRoot: string | null,
+  cwd: string,
+): Promise<{ tags: Array<{ tag: string; count: number }> }> {
+  const tagCounts = new Map<string, number>();
+
+  const scopes = gitRoot
+    ? await discoverScopes(gitRoot, WORKLOG_DEPTH_LIMIT)
+    : [{ absolutePath: join(cwd, WORKLOG_DIR), id: ".", relativePath: ".", isParent: false }];
+
+  for (const scope of scopes) {
+    const indexPath = join(scope.absolutePath, "index.json");
+    if (!(await exists(indexPath))) continue;
+
+    const index = JSON.parse(await Deno.readTextFile(indexPath)) as Index;
+    for (const task of Object.values(index.tasks)) {
+      if (task.tags) {
+        for (const tag of task.tags) {
+          tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
+        }
+      }
+    }
+  }
+
+  const tags = Array.from(tagCounts.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([tag, count]) => ({ tag, count }));
+
+  return { tags };
+}
+
+/**
+ * Manage task tags: list, add, or remove.
+ * - No taskId: list all tags (same as cmdListTags)
+ * - taskId only: show tags for task
+ * - taskId + --add/--remove: modify task tags
+ */
+async function cmdTags(
+  taskId: string | undefined,
+  addTags: string[] | undefined,
+  removeTags: string[] | undefined,
+  gitRoot: string | null,
+  cwd: string,
+): Promise<{ tags?: string[]; allTags?: Array<{ tag: string; count: number }> }> {
+  // Case 1: No taskId → list all tags
+  if (!taskId) {
+    const result = await cmdListTags(gitRoot, cwd);
+    return { allTags: result.tags };
+  }
+
+  // Validate add tags
+  if (addTags?.length) validateTags(addTags);
+
+  await purge();
+  const resolvedId = await resolveTaskId(taskId);
+
+  // Case 2: taskId only → show task tags
+  if (!addTags?.length && !removeTags?.length) {
+    const content = await loadTaskContent(resolvedId);
+    const doc = await parseDocument(content);
+    const yamlContent = getFrontmatterContent(doc);
+    const frontmatter = parseFrontmatter(yamlContent) as Record<string, unknown>;
+
+    const effectiveTags = await getEffectiveTags(
+      frontmatter.tags as string[] | undefined,
+      join(cwd, WORKLOG_DIR),
+      gitRoot,
+    );
+
+    return { tags: effectiveTags };
+  }
+
+  // Case 3: Modify tags
+  const content = await loadTaskContent(resolvedId);
+  const doc = await parseDocument(content);
+  const yamlContent = getFrontmatterContent(doc);
+  const frontmatter = parseFrontmatter(yamlContent) as Record<string, unknown>;
+
+  const currentTags = (frontmatter.tags as string[]) || [];
+  const tagSet = new Set(currentTags);
+
+  addTags?.forEach((t) => tagSet.add(t));
+  removeTags?.forEach((t) => tagSet.delete(t));
+
+  const newTags = Array.from(tagSet).sort();
+  frontmatter.tags = newTags.length > 0 ? newTags : undefined;
+
+  // Save task
+  setFrontmatter(doc, stringifyFrontmatter(frontmatter));
+  await saveTaskContent(resolvedId, serializeDocument(doc));
+
+  // Update index
+  const index = await loadIndex();
+  if (index.tasks[resolvedId]) {
+    index.tasks[resolvedId].tags = newTags.length > 0 ? newTags : undefined;
+  }
+  await saveIndex(index);
+
+  return { tags: newTags };
+}
+
 async function cmdTodoList(taskId?: string): Promise<TodoListOutput> {
   await purge();
 
@@ -2630,6 +2967,7 @@ async function cmdList(
   currentScope?: string,
   cwd?: string,
   statusFilters?: TaskStatus[],
+  filterPattern?: string,
 ): Promise<ListOutput> {
   // Only purge the local worklog, not remote ones
   if (!baseDir) {
@@ -2643,6 +2981,64 @@ async function cmdList(
     showAll || allowedStatuses.includes(status as TaskStatus);
 
   const tasks: ListOutput["tasks"] = [];
+
+  // Handle unified tag/scope filtering
+  if (filterPattern && gitRoot && cwd) {
+    // Try tag filtering first (more granular)
+    const taggedTasks = await findTasksByTagPattern(filterPattern, gitRoot, cwd);
+
+    if (taggedTasks.length > 0) {
+      // Found tasks with matching tags
+      const filteredTasks = taggedTasks
+        .filter(({ task }) => matchStatus(task.status))
+        .map(({ id, task, scopeId }) => ({
+          id,
+          name: task.name ?? task.desc,
+          desc: task.desc,
+          status: task.status,
+          created: formatShort(task.created),
+          // Don't show scope prefix when filtering by tag
+          scopePrefix: undefined,
+          tags: task.tags,
+          filterPattern, // Pass filter pattern for tag display filtering
+        }));
+
+      return { tasks: filteredTasks };
+    }
+
+    // Fall back to scope filtering if no tag matches
+    try {
+      const worklogPath = await resolveScopeIdentifier(filterPattern, gitRoot, cwd);
+      const indexPath = `${worklogPath}/index.json`;
+
+      if (await exists(indexPath)) {
+        const content = await readFile(indexPath);
+        const index = JSON.parse(content) as Index;
+        const scopeId = await getScopeId(worklogPath, gitRoot);
+
+        const scopeTasks = Object.entries(index.tasks)
+          .filter(([_, t]) => matchStatus(t.status))
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([id, t]) => ({
+            id,
+            name: t.name ?? t.desc,
+            desc: t.desc,
+            status: t.status,
+            created: formatShort(t.created),
+            // Don't show scope prefix when filtering by scope
+            scopePrefix: undefined,
+            tags: t.tags,
+            filterPattern, // Pass filter pattern for tag display filtering
+          }));
+
+        return { tasks: scopeTasks };
+      }
+    } catch {
+      // No scope matching either
+    }
+
+    throw new WtError("task_not_found", `No tag or scope matching: ${filterPattern}`);
+  }
 
   // Determine which scopes to list
   if (allScopes && gitRoot) {
@@ -2669,6 +3065,7 @@ async function cmdList(
           status: t.status,
           created: formatShort(t.created),
           scopePrefix: scopeId,
+          tags: t.tags,
         }));
 
       tasks.push(...scopeTasks);
@@ -2701,12 +3098,16 @@ async function cmdList(
         desc: t.desc,
         status: t.status,
         created: formatShort(t.created),
+        tags: t.tags,
       }));
 
     tasks.push(...scopeTasks);
   } else if (gitRoot && currentScope) {
     // Default: current scope + children (children get prefixes)
-    const _currentScopeId = await getScopeId(currentScope, gitRoot);
+    const currentScopeId = await getScopeId(currentScope, gitRoot);
+
+    // Check if this is a child worklog for parent tag pull
+    const isChild = await isChildWorklog(currentScope);
 
     // Load current scope tasks (no prefix)
     const currentIndexPath = `${currentScope}/index.json`;
@@ -2723,9 +3124,37 @@ async function cmdList(
           desc: t.desc,
           status: t.status,
           created: formatShort(t.created),
+          tags: t.tags,
         }));
 
       tasks.push(...currentTasks);
+    }
+
+    // Parent tag pull: if child worklog, include parent tasks with matching tags
+    if (isChild && currentScopeId && currentScopeId !== ".") {
+      try {
+        const parentScope = await getParentScope(currentScope);
+        const parentTasks = await findTasksByTagPattern(currentScopeId, gitRoot, cwd || Deno.cwd());
+
+        // Filter to only active parent tasks
+        const activeParentTasks = parentTasks
+          .filter(({ task, scopePath }) =>
+            matchStatus(task.status) && scopePath === join(parentScope, WORKLOG_DIR)
+          )
+          .map(({ id, task }) => ({
+            id,
+            name: task.name ?? task.desc,
+            desc: task.desc,
+            status: task.status,
+            created: formatShort(task.created),
+            scopePrefix: "⬆",
+            tags: task.tags,
+          }));
+
+        tasks.push(...activeParentTasks);
+      } catch {
+        // Parent scope not found or error reading it, skip parent tag pull
+      }
     }
 
     // Load children tasks (with prefix)
@@ -2757,6 +3186,7 @@ async function cmdList(
                 status: t.status,
                 created: formatShort(t.created),
                 scopePrefix: child.id,
+                tags: t.tags,
               }));
 
             tasks.push(...childTasks);
@@ -2792,6 +3222,7 @@ async function cmdList(
         desc: t.desc,
         status: t.status,
         created: formatShort(t.created),
+        tags: t.tags,
       }));
 
     tasks.push(...singleTasks);
@@ -3119,6 +3550,56 @@ async function cmdImport(
     skipped,
     tasks: results,
   };
+}
+
+/**
+ * Import tasks from child worklog, converting scope to tag.
+ */
+async function cmdImportScopeToTag(
+  sourcePath: string,
+  removeSource: boolean,
+  customTagName: string | undefined,
+  gitRoot: string | null,
+): Promise<ImportOutput & { tag: string }> {
+  // Get source scope ID
+  const scopeId = gitRoot ? await getScopeId(dirname(sourcePath), gitRoot) : basename(dirname(sourcePath));
+  const tagName = customTagName || scopeId;
+
+  validateTags([tagName]);
+
+  // Import tasks using existing cmdImport
+  const importResult = await cmdImport(sourcePath, removeSource);
+
+  // Add tag to all imported tasks (not merged ones, as they already exist)
+  const targetIndex = await loadIndex();
+
+  for (const taskResult of importResult.tasks) {
+    if (taskResult.status !== "imported") continue; // Skip merged/skipped
+
+    const taskId = taskResult.id;
+    const content = await loadTaskContent(taskId);
+    const doc = await parseDocument(content);
+    const yamlContent = getFrontmatterContent(doc);
+    const frontmatter = parseFrontmatter(yamlContent) as Record<string, unknown>;
+
+    const currentTags = (frontmatter.tags as string[]) || [];
+    const tagSet = new Set(currentTags);
+    tagSet.add(tagName);
+    const newTags = Array.from(tagSet).sort();
+
+    frontmatter.tags = newTags;
+    setFrontmatter(doc, stringifyFrontmatter(frontmatter));
+    await saveTaskContent(taskId, serializeDocument(doc));
+
+    // Update index
+    if (targetIndex.tasks[taskId]) {
+      targetIndex.tasks[taskId].tags = newTags;
+    }
+  }
+
+  await saveIndex(targetIndex);
+
+  return { ...importResult, tag: tagName };
 }
 
 async function cmdScopes(refresh: boolean, cwd: string): Promise<ScopesOutput> {
@@ -3675,6 +4156,148 @@ async function cmdScopesDelete(
   await refreshScopeHierarchy(gitRoot, scopes);
 
   return { status: "scope_deleted" };
+}
+
+/**
+ * Export tasks with specific tag to new child worklog.
+ */
+async function cmdScopesExport(
+  tagPattern: string,
+  targetPath: string,
+  removeTag: boolean,
+  customScopeId: string | undefined,
+  gitRoot: string | null,
+  cwd: string,
+): Promise<{ exported: number; scopeId: string; targetPath: string }> {
+  validateTags([tagPattern]);
+
+  if (!gitRoot) {
+    throw new WtError(
+      "not_in_git_repo",
+      "Not in a git repository. Export requires git.",
+    );
+  }
+
+  const scopeId = customScopeId || tagPattern;
+
+  // Find all tasks matching tag
+  const matchingTasks = await findTasksByTagPattern(tagPattern, gitRoot, cwd);
+
+  if (matchingTasks.length === 0) {
+    throw new WtError("task_not_found", `No tasks with tag: ${tagPattern}`);
+  }
+
+  // Resolve target path
+  const absoluteTargetPath = isAbsolute(targetPath)
+    ? targetPath
+    : join(cwd, targetPath);
+  const targetWorklogPath = join(absoluteTargetPath, WORKLOG_DIR);
+
+  // Check if target exists
+  if (await exists(targetWorklogPath)) {
+    const targetIndexPath = join(targetWorklogPath, "index.json");
+    if (await exists(targetIndexPath)) {
+      const targetIndex = JSON.parse(
+        await Deno.readTextFile(targetIndexPath),
+      ) as Index;
+      if (Object.keys(targetIndex.tasks).length > 0) {
+        throw new WtError(
+          "invalid_state",
+          `Target worklog has ${
+            Object.keys(targetIndex.tasks).length
+          } tasks. Choose different path.`,
+        );
+      }
+    }
+  }
+
+  // Create target worklog directory
+  await ensureDir(join(targetWorklogPath, "tasks"));
+
+  // Initialize target index
+  const targetIndex: Index = { version: 2, tasks: {} };
+
+  // Copy tasks
+  for (const { id, task, scopePath } of matchingTasks) {
+    const sourceWorklogPath = scopePath;
+
+    const content = await loadTaskContentFrom(id, sourceWorklogPath);
+    const doc = await parseDocument(content);
+    const yamlContent = getFrontmatterContent(doc);
+    const frontmatter = parseFrontmatter(yamlContent) as Record<string, unknown>;
+
+    // Adjust tags: remove exported tag or tag prefix
+    const currentTags = (frontmatter.tags as string[]) || [];
+    const newTags = removeTag
+      ? currentTags
+        .filter((t) => !matchesTagPattern(tagPattern, t))
+        .map((t) =>
+          t.startsWith(tagPattern + "/") ? t.slice(tagPattern.length + 1) : t
+        )
+      : currentTags;
+
+    frontmatter.tags = newTags.length > 0 ? newTags : undefined;
+    setFrontmatter(doc, stringifyFrontmatter(frontmatter));
+
+    // Save to target
+    await saveTaskContentTo(id, serializeDocument(doc), targetWorklogPath);
+
+    // Add to target index
+    targetIndex.tasks[id] = {
+      ...task,
+      tags: newTags.length > 0 ? newTags : undefined,
+    };
+
+    // Remove from source
+    await Deno.remove(join(sourceWorklogPath, "tasks", `${id}.md`));
+    const sourceIndex = await loadIndexFrom(sourceWorklogPath);
+    delete sourceIndex.tasks[id];
+    await saveIndexTo(sourceIndex, sourceWorklogPath);
+  }
+
+  // Save target index
+  await saveIndexTo(targetIndex, targetWorklogPath);
+
+  // Create scope.json in target (child)
+  const targetScopeConfig: ScopeConfigChild = {
+    parent: relative(absoluteTargetPath, gitRoot),
+  };
+  await Deno.writeTextFile(
+    join(targetWorklogPath, "scope.json"),
+    JSON.stringify(targetScopeConfig, null, 2),
+  );
+
+  // Update parent scope.json
+  const parentWorklogPath = join(gitRoot, WORKLOG_DIR);
+  const parentScopeJsonPath = join(parentWorklogPath, "scope.json");
+
+  let parentConfig: ScopeConfigParent;
+  if (await exists(parentScopeJsonPath)) {
+    parentConfig = JSON.parse(
+      await Deno.readTextFile(parentScopeJsonPath),
+    ) as ScopeConfigParent;
+    if (!("children" in parentConfig)) {
+      throw new WtError("invalid_state", "Parent scope.json is not a parent config");
+    }
+  } else {
+    parentConfig = { children: [] };
+  }
+
+  // Add child entry
+  const relativePath = relative(gitRoot, absoluteTargetPath);
+  parentConfig.children.push({
+    path: relativePath,
+    id: scopeId,
+    type: "path",
+  });
+
+  await Deno.writeTextFile(parentScopeJsonPath, JSON.stringify(parentConfig, null, 2));
+
+  return {
+    exported: matchingTasks.length,
+    scopeId,
+    targetPath: absoluteTargetPath,
+  };
 }
 
 interface SyncWorktreesOutput {
@@ -4382,6 +5005,36 @@ const scopesAssignCmd = new Command()
     }
   });
 
+const scopesExportCmd = new Command()
+  .description("Export tasks with tag to new child worklog")
+  .arguments("<tag:string> <target-path:string>")
+  .option("--json", "Output as JSON")
+  .option("--keep-tag", "Keep tag on exported tasks")
+  .option("--scope-id <id:string>", "Custom scope ID (defaults to tag)")
+  .action(async (options, tag, targetPath) => {
+    try {
+      applyDirOptions(options.cwd, options.worklogDir);
+      const cwd = Deno.cwd();
+      const gitRoot = await findGitRoot(cwd);
+      const output = await cmdScopesExport(
+        tag,
+        targetPath,
+        !options.keepTag, // removeTag = !keepTag
+        options.scopeId,
+        gitRoot,
+        cwd,
+      );
+      if (options.json) {
+        console.log(JSON.stringify(output));
+      } else {
+        console.log(`Exported ${output.exported} tasks to ${output.targetPath}`);
+        console.log(`Scope ID: ${output.scopeId}`);
+      }
+    } catch (e) {
+      handleError(e, options.json ?? false);
+    }
+  });
+
 const scopesSyncWorktreesCmd = new Command()
   .description("Sync worktree scopes (add missing, remove stale)")
   .option("--json", "Output as JSON")
@@ -4447,6 +5100,7 @@ const scopesCmd = new Command()
   .command("rename", scopesRenameCmd)
   .command("delete", scopesDeleteCmd)
   .command("assign", scopesAssignCmd)
+  .command("export", scopesExportCmd)
   .command("sync-worktrees", scopesSyncWorktreesCmd);
 
 // ============================================================================
@@ -4484,10 +5138,14 @@ const taskCreateCmd = new Command()
   .option("--meta <kv:string>", "Set metadata key=value (repeatable)", {
     collect: true,
   })
+  .option("--tag <tag:string>", "Add tag (repeatable)", {
+    collect: true,
+  })
   .action(async (options, desc) => {
     try {
       await resolveScopeContext(options.scope, options.cwd, options.worklogDir);
       const todos = options.todo ?? [];
+      const tags = options.tag ?? [];
       let timestampValue: string | undefined;
       if (options.timestamp) {
         try {
@@ -4515,7 +5173,7 @@ const taskCreateCmd = new Command()
       const metadata = parseMetaOption(options.meta);
       // For backward compat, `wl task create` creates started tasks
       const name = desc.split("\n")[0].trim();
-      const output = await cmdAdd(name, desc, "started", todos, metadata, timestampValue);
+      const output = await cmdAdd(name, desc, "started", todos, metadata, tags, timestampValue);
       console.log(options.json ? JSON.stringify(output) : formatAdd(output));
     } catch (e) {
       handleError(e, options.json ?? false);
@@ -4542,6 +5200,9 @@ const createCmd = new Command()
   .option("--meta <kv:string>", "Set metadata key=value (repeatable)", {
     collect: true,
   })
+  .option("--tag <tag:string>", "Add tag (repeatable)", {
+    collect: true,
+  })
   .action(async (options, name, desc) => {
     try {
       await resolveScopeContext(options.scope, options.cwd, options.worklogDir);
@@ -4563,6 +5224,7 @@ const createCmd = new Command()
       }
 
       const todos = options.todo ?? [];
+      const tags = options.tag ?? [];
       let timestampValue: string | undefined;
       if (options.timestamp) {
         try {
@@ -4588,7 +5250,7 @@ const createCmd = new Command()
         }
       }
       const metadata = parseMetaOption(options.meta);
-      const output = await cmdAdd(name, desc, initialStatus, todos, metadata, timestampValue);
+      const output = await cmdAdd(name, desc, initialStatus, todos, metadata, tags, timestampValue);
       console.log(options.json ? JSON.stringify(output) : formatAdd(output));
     } catch (e) {
       handleError(e, options.json ?? false);
@@ -4809,8 +5471,55 @@ const metaCmd = new Command()
     }
   });
 
+const tagsCmd = new Command()
+  .description("Manage task tags")
+  .arguments("[taskId:string]")
+  .option("--json", "Output as JSON")
+  .option("--scope <scope:string>", "Target specific scope")
+  .option("--add <tag:string>", "Add tag (repeatable)", { collect: true })
+  .option("--remove <tag:string>", "Remove tag (repeatable)", { collect: true })
+  .action(async (options, taskId) => {
+    try {
+      await resolveScopeContext(options.scope, options.cwd, options.worklogDir);
+      const cwd = Deno.cwd();
+      const gitRoot = await findGitRoot(cwd);
+
+      const output = await cmdTags(
+        taskId,
+        options.add,
+        options.remove,
+        gitRoot,
+        cwd,
+      );
+
+      if (options.json) {
+        console.log(JSON.stringify(output));
+      } else if (output.allTags) {
+        // List all tags
+        if (output.allTags.length === 0) {
+          console.log("No tags found");
+        } else {
+          console.log("Available tags:");
+          for (const { tag, count } of output.allTags) {
+            console.log(`  ${tag} (${count} ${count === 1 ? "task" : "tasks"})`);
+          }
+        }
+      } else if (output.tags) {
+        // Show task tags or modification result
+        if (output.tags.length === 0) {
+          console.log("(no tags)");
+        } else {
+          console.log(output.tags.map((t) => `#${t}`).join(" "));
+        }
+      }
+    } catch (e) {
+      handleError(e, options.json ?? false);
+    }
+  });
+
 const listCmd = new Command()
-  .description("List tasks")
+  .description("List tasks (optionally filter by tag or scope pattern)")
+  .arguments("[pattern:string]")
   .option("--json", "Output as JSON")
   .option("--all", "Include completed tasks")
   .option("--created", "Show only created tasks")
@@ -4821,7 +5530,7 @@ const listCmd = new Command()
   .option("-p, --path <path:string>", "Path to .worklog directory")
   .option("--scope <scope:string>", "Target specific scope")
   .option("--all-scopes", "Show all scopes")
-  .action(async (options) => {
+  .action(async (options, pattern) => {
     try {
       // Build status filter from flags
       const statusFilters: TaskStatus[] = [];
@@ -4852,6 +5561,7 @@ const listCmd = new Command()
           undefined,
           Deno.cwd(),
           statusFilters.length > 0 ? statusFilters : undefined,
+          pattern,
         );
         console.log(
           options.json ? JSON.stringify(output) : formatList(output, options.all),
@@ -4878,6 +5588,7 @@ const listCmd = new Command()
         currentScope,
         cwd,
         statusFilters.length > 0 ? statusFilters : undefined,
+        pattern,
       );
       console.log(
         options.json ? JSON.stringify(output) : formatList(output, options.all),
@@ -4912,6 +5623,8 @@ const importCmd = new Command()
     "Resolve worktree path from branch name",
   )
   .option("--rm", "Remove imported tasks from source")
+  .option("--scope-to-tag", "Convert source scope to tag")
+  .option("--tag-name <name:string>", "Custom tag name (with --scope-to-tag)")
   .action(async (options) => {
     try {
       applyDirOptions(options.cwd, options.worklogDir);
@@ -4927,14 +5640,39 @@ const importCmd = new Command()
           "Must specify either --path or --branch",
         );
       }
+      if (options.tagName && !options.scopeToTag) {
+        throw new WtError(
+          "invalid_args",
+          "--tag-name requires --scope-to-tag",
+        );
+      }
+
       let sourcePath: string;
       if (options.branch) {
         sourcePath = await resolveWorktreePath(options.branch);
       } else {
         sourcePath = options.path!;
       }
-      const output = await cmdImport(sourcePath, options.rm ?? false);
-      console.log(options.json ? JSON.stringify(output) : formatImport(output));
+
+      if (options.scopeToTag) {
+        const cwd = Deno.cwd();
+        const gitRoot = await findGitRoot(cwd);
+        const output = await cmdImportScopeToTag(
+          sourcePath,
+          options.rm ?? false,
+          options.tagName,
+          gitRoot,
+        );
+        if (options.json) {
+          console.log(JSON.stringify(output));
+        } else {
+          console.log(formatImport(output));
+          console.log(`\nImported with tag: #${output.tag}`);
+        }
+      } else {
+        const output = await cmdImport(sourcePath, options.rm ?? false);
+        console.log(options.json ? JSON.stringify(output) : formatImport(output));
+      }
     } catch (e) {
       handleError(e, options.json ?? false);
     }
@@ -4977,6 +5715,7 @@ const cli = new Command()
   .command("done", doneCmd)
   .command("cancel", cancelCmd)
   .command("meta", metaCmd)
+  .command("tags", tagsCmd)
   .command("list", listCmd)
   .command("summary", summaryCmd)
   .command("import", importCmd)

@@ -3418,3 +3418,145 @@ Deno.test("--worklog-dir + init - creates non-standard worklog dir", async () =>
     await Deno.remove(tempDir, { recursive: true });
   }
 });
+
+
+// ============================================================================
+// Tag System Tests
+// ============================================================================
+
+Deno.test("tags - create task with tags", async () => {
+  const tempDir = await Deno.makeTempDir();
+  const originalCwd = Deno.cwd();
+  try {
+    Deno.chdir(tempDir);
+    await main(["init"]);
+
+    await main(["create", "Test task", "--tag", "feat/auth", "--tag", "urgent"]);
+
+    const listOutput = await captureOutput(() => main(["list", "--json"]));
+    const { tasks } = JSON.parse(listOutput);
+    assertEquals(tasks.length, 1);
+    assertEquals(tasks[0].tags, ["feat/auth", "urgent"]);
+  } finally {
+    Deno.chdir(originalCwd);
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});
+
+Deno.test("tags - add and remove tags", async () => {
+  const tempDir = await Deno.makeTempDir();
+  const originalCwd = Deno.cwd();
+  try {
+    Deno.chdir(tempDir);
+    await main(["init"]);
+
+    await main(["create", "Test task", "--tag", "feat/test"]);
+
+    const listOutput = await captureOutput(() => main(["list", "--json"]));
+    const { tasks } = JSON.parse(listOutput);
+    const taskId = tasks[0].id;
+
+    // Add tags
+    await main(["tags", taskId, "--add", "backend/api", "--add", "urgent"]);
+
+    let updatedOutput = await captureOutput(() => main(["list", "--json"]));
+    let updatedTasks = JSON.parse(updatedOutput).tasks;
+    assertEquals(updatedTasks[0].tags, ["backend/api", "feat/test", "urgent"]);
+
+    // Remove tag
+    await main(["tags", taskId, "--remove", "urgent"]);
+
+    updatedOutput = await captureOutput(() => main(["list", "--json"]));
+    updatedTasks = JSON.parse(updatedOutput).tasks;
+    assertEquals(updatedTasks[0].tags, ["backend/api", "feat/test"]);
+  } finally {
+    Deno.chdir(originalCwd);
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});
+
+Deno.test("tags - list all tags with counts", async () => {
+  const tempDir = await Deno.makeTempDir();
+  const originalCwd = Deno.cwd();
+  try {
+    Deno.chdir(tempDir);
+    await main(["init"]);
+
+    await main(["create", "Task 1", "--tag", "feat/auth"]);
+    await main(["create", "Task 2", "--tag", "feat/auth", "--tag", "urgent"]);
+    await main(["create", "Task 3", "--tag", "bug/fix"]);
+
+    const output = await captureOutput(() => main(["tags"]));
+    assertStringIncludes(output, "feat/auth (2 tasks)");
+    assertStringIncludes(output, "urgent (1 task)");
+    assertStringIncludes(output, "bug/fix (1 task)");
+  } finally {
+    Deno.chdir(originalCwd);
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});
+
+Deno.test("tags - display in show command", async () => {
+  const tempDir = await Deno.makeTempDir();
+  const originalCwd = Deno.cwd();
+  try {
+    Deno.chdir(tempDir);
+    await main(["init"]);
+
+    await main(["create", "Test task", "--tag", "feat/test", "--tag", "urgent"]);
+
+    const listOutput = await captureOutput(() => main(["list", "--json"]));
+    const { tasks } = JSON.parse(listOutput);
+    const taskId = tasks[0].id;
+
+    const output = await captureOutput(() => main(["show", taskId]));
+    assertStringIncludes(output, "tags: #feat/test #urgent");
+  } finally {
+    Deno.chdir(originalCwd);
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});
+
+Deno.test("tags - persist in task file frontmatter", async () => {
+  const tempDir = await Deno.makeTempDir();
+  const originalCwd = Deno.cwd();
+  try {
+    Deno.chdir(tempDir);
+    await main(["init"]);
+
+    await main(["create", "Test task", "--tag", "feat/test", "--tag", "urgent"]);
+
+    const listOutput = await captureOutput(() => main(["list", "--json"]));
+    const { tasks } = JSON.parse(listOutput);
+    const taskId = tasks[0].id;
+
+    const taskContent = await Deno.readTextFile(`.worklog/tasks/${taskId}.md`);
+    assertStringIncludes(taskContent, "tags:");
+    assertStringIncludes(taskContent, "- feat/test");
+    assertStringIncludes(taskContent, "- urgent");
+  } finally {
+    Deno.chdir(originalCwd);
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});
+
+Deno.test("tags - persist in index for fast filtering", async () => {
+  const tempDir = await Deno.makeTempDir();
+  const originalCwd = Deno.cwd();
+  try {
+    Deno.chdir(tempDir);
+    await main(["init"]);
+
+    await main(["create", "Test task", "--tag", "feat/test"]);
+
+    const indexContent = await Deno.readTextFile(".worklog/index.json");
+    const index = JSON.parse(indexContent);
+
+    const taskIds = Object.keys(index.tasks);
+    assertEquals(taskIds.length, 1);
+    assertEquals(index.tasks[taskIds[0]].tags, ["feat/test"]);
+  } finally {
+    Deno.chdir(originalCwd);
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});
