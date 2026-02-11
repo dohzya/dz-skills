@@ -3714,3 +3714,357 @@ Deno.test("tags - persist in index for fast filtering", async () => {
     await Deno.remove(tempDir, { recursive: true });
   }
 });
+
+// ============================================================================
+// Cross-scope task resolution tests
+// ============================================================================
+
+/**
+ * Helper: set up a git repo with parent + child scope, each with a task.
+ * Returns { gitRoot, parentTaskId, childTaskId, childScopeId }.
+ */
+async function setupCrossScopeFixture(
+  tempDir: string,
+): Promise<{
+  gitRoot: string;
+  parentTaskId: string;
+  childTaskId: string;
+  childScopeId: string;
+}> {
+  // Initialize git repo
+  await new Deno.Command("git", { args: ["init"], cwd: tempDir }).output();
+  await new Deno.Command("git", {
+    args: ["config", "user.email", "test@example.com"],
+    cwd: tempDir,
+  }).output();
+  await new Deno.Command("git", {
+    args: ["config", "user.name", "Test User"],
+    cwd: tempDir,
+  }).output();
+
+  // Create parent worklog at root
+  Deno.chdir(tempDir);
+  await main(["init"]);
+  await main(["create", "Parent task"]);
+
+  // Get parent task ID
+  const parentListOutput = await captureOutput(() =>
+    main(["list", "--all", "--json"])
+  );
+  const parentTasks = JSON.parse(parentListOutput).tasks;
+  const parentTaskId = parentTasks[0].id;
+
+  // Create child directory and worklog
+  const childDir = `${tempDir}/packages/api`;
+  await Deno.mkdir(childDir, { recursive: true });
+  Deno.chdir(childDir);
+  await main(["init"]);
+  await main(["create", "Child API task"]);
+
+  // Get child task ID
+  const childListOutput = await captureOutput(() =>
+    main(["list", "--all", "--json"])
+  );
+  const childTasks = JSON.parse(childListOutput).tasks;
+  const childTaskId = childTasks[0].id;
+
+  // Link child to parent: wl scopes add-parent <parent-path> --id api
+  await main(["scopes", "add-parent", tempDir, "--id", "api"]);
+
+  return {
+    gitRoot: tempDir,
+    parentTaskId,
+    childTaskId,
+    childScopeId: "api",
+  };
+}
+
+Deno.test("cross-scope - show child task from parent scope", async () => {
+  const tempDir = await Deno.makeTempDir();
+  const originalCwd = Deno.cwd();
+  try {
+    const { gitRoot, childTaskId } = await setupCrossScopeFixture(tempDir);
+
+    // Go to parent scope
+    Deno.chdir(gitRoot);
+
+    // Show child task using its prefix from the parent scope
+    const shortPrefix = childTaskId.slice(0, 6);
+    const showOutput = await captureOutput(() =>
+      main(["show", shortPrefix, "--json"])
+    );
+    const showResult = JSON.parse(showOutput);
+    assertEquals(showResult.fullId, childTaskId);
+    assertEquals(showResult.name, "Child API task");
+  } finally {
+    Deno.chdir(originalCwd);
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});
+
+Deno.test("cross-scope - explicit scope:prefix syntax resolves child task", async () => {
+  const tempDir = await Deno.makeTempDir();
+  const originalCwd = Deno.cwd();
+  try {
+    const { gitRoot, childTaskId, childScopeId } = await setupCrossScopeFixture(
+      tempDir,
+    );
+
+    // Go to parent scope
+    Deno.chdir(gitRoot);
+
+    // Show child task using explicit scope:prefix
+    const shortPrefix = childTaskId.slice(0, 6);
+    const showOutput = await captureOutput(() =>
+      main(["show", `${childScopeId}:${shortPrefix}`, "--json"])
+    );
+    const showResult = JSON.parse(showOutput);
+    assertEquals(showResult.fullId, childTaskId);
+  } finally {
+    Deno.chdir(originalCwd);
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});
+
+Deno.test("cross-scope - start child task from parent scope", async () => {
+  const tempDir = await Deno.makeTempDir();
+  const originalCwd = Deno.cwd();
+  try {
+    const { gitRoot, childTaskId } = await setupCrossScopeFixture(tempDir);
+
+    Deno.chdir(gitRoot);
+
+    // Start child task from parent scope
+    const shortPrefix = childTaskId.slice(0, 6);
+    const startOutput = await captureOutput(() =>
+      main(["start", shortPrefix, "--json"])
+    );
+    const startResult = JSON.parse(startOutput);
+    assertEquals(startResult.status, "task_started");
+
+    // Verify it's actually started by checking in child scope
+    Deno.chdir(`${gitRoot}/packages/api`);
+    const showOutput = await captureOutput(() =>
+      main(["show", shortPrefix, "--json"])
+    );
+    const showResult = JSON.parse(showOutput);
+    assertEquals(showResult.status, "started");
+  } finally {
+    Deno.chdir(originalCwd);
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});
+
+Deno.test("cross-scope - cancel child task from parent scope", async () => {
+  const tempDir = await Deno.makeTempDir();
+  const originalCwd = Deno.cwd();
+  try {
+    const { gitRoot, childTaskId } = await setupCrossScopeFixture(tempDir);
+
+    Deno.chdir(gitRoot);
+
+    // Cancel child task from parent scope
+    const shortPrefix = childTaskId.slice(0, 6);
+    const output = await captureOutput(() =>
+      main(["cancel", shortPrefix, "--json"])
+    );
+    const result = JSON.parse(output);
+    assertEquals(result.status, "task_cancelled");
+  } finally {
+    Deno.chdir(originalCwd);
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});
+
+Deno.test("cross-scope - parent task still resolves locally (no cross-scope needed)", async () => {
+  const tempDir = await Deno.makeTempDir();
+  const originalCwd = Deno.cwd();
+  try {
+    const { gitRoot, parentTaskId } = await setupCrossScopeFixture(tempDir);
+
+    Deno.chdir(gitRoot);
+
+    // Show parent task - should resolve locally without cross-scope search
+    const shortPrefix = parentTaskId.slice(0, 6);
+    const showOutput = await captureOutput(() =>
+      main(["show", shortPrefix, "--json"])
+    );
+    const showResult = JSON.parse(showOutput);
+    assertEquals(showResult.fullId, parentTaskId);
+    assertEquals(showResult.name, "Parent task");
+  } finally {
+    Deno.chdir(originalCwd);
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});
+
+Deno.test("cross-scope - nonexistent task fails with clear error", async () => {
+  const tempDir = await Deno.makeTempDir();
+  const originalCwd = Deno.cwd();
+  const originalExit = Deno.exit;
+  const originalError = console.error;
+  let exitCode = 0;
+  let errorOutput = "";
+
+  Deno.exit = ((code: number) => {
+    exitCode = code;
+    throw new Error("EXIT");
+  }) as typeof Deno.exit;
+
+  console.error = (msg: string) => {
+    errorOutput += msg;
+  };
+
+  try {
+    const { gitRoot } = await setupCrossScopeFixture(tempDir);
+
+    Deno.chdir(gitRoot);
+
+    try {
+      await main(["show", "zzzzzzz", "--json"]);
+    } catch (_e) {
+      // Expected exit
+    }
+
+    assertEquals(exitCode, 1);
+    assertStringIncludes(errorOutput, "task_not_found");
+    assertStringIncludes(errorOutput, "searched all scopes");
+  } finally {
+    Deno.exit = originalExit;
+    console.error = originalError;
+    Deno.chdir(originalCwd);
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});
+
+Deno.test("cross-scope - show parent task from child scope using ^:prefix", async () => {
+  const tempDir = await Deno.makeTempDir();
+  const originalCwd = Deno.cwd();
+  try {
+    const { gitRoot, parentTaskId } = await setupCrossScopeFixture(tempDir);
+
+    // Go to child scope
+    Deno.chdir(`${gitRoot}/packages/api`);
+
+    // Show parent task using ^:prefix syntax
+    const shortPrefix = parentTaskId.slice(0, 6);
+    const showOutput = await captureOutput(() =>
+      main(["show", `^:${shortPrefix}`, "--json"])
+    );
+    const showResult = JSON.parse(showOutput);
+    assertEquals(showResult.fullId, parentTaskId);
+    assertEquals(showResult.name, "Parent task");
+  } finally {
+    Deno.chdir(originalCwd);
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});
+
+Deno.test("cross-scope - trace child task from parent scope", async () => {
+  const tempDir = await Deno.makeTempDir();
+  const originalCwd = Deno.cwd();
+  try {
+    const { gitRoot, childTaskId } = await setupCrossScopeFixture(tempDir);
+
+    Deno.chdir(gitRoot);
+
+    // Trace child task from parent scope
+    const shortPrefix = childTaskId.slice(0, 6);
+    const output = await captureOutput(() =>
+      main(["trace", shortPrefix, "Cross-scope trace entry", "--json"])
+    );
+    const result = JSON.parse(output);
+    assertEquals(result.status, "ok");
+
+    // Verify trace was written in the child scope's task file
+    Deno.chdir(`${gitRoot}/packages/api`);
+    const showOutput = await captureOutput(() =>
+      main(["show", shortPrefix, "--json"])
+    );
+    const showResult = JSON.parse(showOutput);
+    assert(showResult.entries_since_checkpoint.length > 0);
+    assertEquals(
+      showResult.entries_since_checkpoint[0].msg,
+      "Cross-scope trace entry",
+    );
+  } finally {
+    Deno.chdir(originalCwd);
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});
+
+Deno.test("cross-scope - resolves task in worktree scope outside git root", async () => {
+  // Simulates worktree-based scopes where children are sibling directories
+  // of the git root (like git worktrees), not subdirectories.
+  const rootDir = await Deno.makeTempDir();
+  const siblingDir = await Deno.makeTempDir();
+  const originalCwd = Deno.cwd();
+  try {
+    // Initialize git repo in rootDir
+    await new Deno.Command("git", { args: ["init"], cwd: rootDir }).output();
+    await new Deno.Command("git", {
+      args: ["config", "user.email", "test@example.com"],
+      cwd: rootDir,
+    }).output();
+    await new Deno.Command("git", {
+      args: ["config", "user.name", "Test User"],
+      cwd: rootDir,
+    }).output();
+
+    // Create parent worklog at root
+    Deno.chdir(rootDir);
+    await main(["init"]);
+    await main(["create", "Parent task"]);
+
+    // Create sibling worklog (simulating a worktree)
+    Deno.chdir(siblingDir);
+    await main(["init"]);
+    await main(["create", "Sibling worktree task"]);
+
+    // Get sibling task ID
+    const siblingList = await captureOutput(() =>
+      main(["list", "--all", "--json"])
+    );
+    const siblingTasks = JSON.parse(siblingList).tasks;
+    const siblingTaskId = siblingTasks[0].id;
+
+    // Manually configure scope.json in root to reference the sibling
+    const scopeJson = {
+      children: [
+        {
+          path: siblingDir,
+          id: "sibling-wt",
+          type: "worktree",
+        },
+      ],
+    };
+    await Deno.writeTextFile(
+      `${rootDir}/.worklog/scope.json`,
+      JSON.stringify(scopeJson, null, 2),
+    );
+
+    // Now try to show the sibling task from root scope
+    Deno.chdir(rootDir);
+    const shortPrefix = siblingTaskId.slice(0, 6);
+    const showOutput = await captureOutput(() =>
+      main(["show", shortPrefix, "--json"])
+    );
+    const showResult = JSON.parse(showOutput);
+    assertEquals(showResult.fullId, siblingTaskId);
+    assertEquals(showResult.name, "Sibling worktree task");
+
+    // Return to root (implicit resolution may have chdir'd)
+    Deno.chdir(rootDir);
+
+    // Also test explicit scope:prefix syntax
+    const showOutput2 = await captureOutput(() =>
+      main(["show", `sibling-wt:${shortPrefix}`, "--json"])
+    );
+    const showResult2 = JSON.parse(showOutput2);
+    assertEquals(showResult2.fullId, siblingTaskId);
+  } finally {
+    Deno.chdir(originalCwd);
+    await Deno.remove(rootDir, { recursive: true });
+    await Deno.remove(siblingDir, { recursive: true });
+  }
+});

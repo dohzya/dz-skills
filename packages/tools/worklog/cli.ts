@@ -737,6 +737,225 @@ async function resolveTaskIdWithEnvFallback(
   return await resolveTaskId(id);
 }
 
+/**
+ * Parse a potentially scope-qualified task ID.
+ * "api:def2" → { scopeHint: "api", taskPrefix: "def2" }
+ * "def2"     → { scopeHint: undefined, taskPrefix: "def2" }
+ * "⬆:def2"   → { scopeHint: "⬆", taskPrefix: "def2" }
+ */
+function parseScopedTaskId(
+  input: string,
+): { scopeHint: string | undefined; taskPrefix: string } {
+  const colonIdx = input.indexOf(":");
+  if (colonIdx > 0) {
+    return {
+      scopeHint: input.slice(0, colonIdx),
+      taskPrefix: input.slice(colonIdx + 1),
+    };
+  }
+  return { scopeHint: undefined, taskPrefix: input };
+}
+
+/**
+ * Resolve a task ID across scopes.
+ *
+ * Algorithm:
+ * 1. If explicit scope:prefix syntax, resolve the scope and search there.
+ * 2. Try local scope first. If found → return.
+ * 3. On task_not_found + gitRoot exists: search all discovered scopes.
+ * 4. 0 matches → throw task_not_found
+ *    1 match  → chdir to that scope and return full ID
+ *    N matches → throw invalid_args with scope-qualified suggestions
+ */
+async function resolveTaskIdAcrossScopes(
+  input: string,
+  gitRoot: string | null,
+): Promise<string> {
+  const { scopeHint, taskPrefix } = parseScopedTaskId(input);
+
+  // Case 1: Explicit scope:prefix
+  if (scopeHint) {
+    if (!gitRoot) {
+      throw new WtError(
+        "invalid_args",
+        "Scope-qualified task IDs require a git repository",
+      );
+    }
+
+    const cwd = Deno.cwd();
+    let scopePath: string;
+
+    if (scopeHint === "⬆" || scopeHint === "^") {
+      // Parent scope
+      const currentWorklog = join(cwd, WORKLOG_DIR);
+      if (!(await isChildWorklog(currentWorklog))) {
+        throw new WtError(
+          "scope_not_found",
+          "Current scope has no parent",
+        );
+      }
+      scopePath = await getParentScope(currentWorklog);
+    } else {
+      const worklogPath = await resolveScopeIdentifier(
+        scopeHint,
+        gitRoot,
+        cwd,
+      );
+      scopePath = worklogPath.slice(0, -WORKLOG_DIR.length - 1);
+    }
+
+    Deno.chdir(scopePath);
+    return await resolveTaskId(taskPrefix);
+  }
+
+  // Case 2: Try local scope first
+  try {
+    return await resolveTaskId(input);
+  } catch (e) {
+    if (!(e instanceof WtError) || e.code !== "task_not_found") {
+      throw e; // Re-throw ambiguous matches or other errors
+    }
+    // Fall through to cross-scope search
+  }
+
+  // Case 3: Search across scopes (only if gitRoot available)
+  if (!gitRoot) {
+    throw new WtError(
+      "task_not_found",
+      `No task found matching prefix: ${input}`,
+    );
+  }
+
+  const currentWorklogPath = join(Deno.cwd(), WORKLOG_DIR);
+
+  // Collect all scope worklog paths to search (deduplicated by absolute path)
+  const scopesToSearch = new Map<string, { absPath: string; id: string }>();
+
+  // Source 1: discoverScopes (finds scopes within git root)
+  const discoveredScopes = await discoverScopes(gitRoot, WORKLOG_DEPTH_LIMIT);
+  for (const scope of discoveredScopes) {
+    if (scope.absolutePath !== currentWorklogPath) {
+      scopesToSearch.set(scope.absolutePath, {
+        absPath: scope.absolutePath,
+        id: scope.id,
+      });
+    }
+  }
+
+  // Source 2: scope.json children (finds worktree scopes outside git root)
+  const scopeJsonPath = `${currentWorklogPath}/scope.json`;
+  if (await exists(scopeJsonPath)) {
+    try {
+      const configContent = await readFile(scopeJsonPath);
+      const config = JSON.parse(configContent) as ScopeConfig;
+      if ("children" in config) {
+        for (const child of config.children) {
+          // Resolve child path (can be relative or absolute)
+          const childWorklogPath = isAbsolute(child.path)
+            ? `${child.path}/${WORKLOG_DIR}`
+            : resolve(gitRoot, child.path, WORKLOG_DIR);
+          if (!scopesToSearch.has(childWorklogPath)) {
+            scopesToSearch.set(childWorklogPath, {
+              absPath: childWorklogPath,
+              id: child.id,
+            });
+          }
+        }
+      }
+    } catch {
+      // Ignore errors reading scope.json
+    }
+  }
+
+  // Also check parent scope if current is a child
+  if (await isChildWorklog(currentWorklogPath)) {
+    try {
+      const parentScopePath = await getParentScope(currentWorklogPath);
+      if (!scopesToSearch.has(parentScopePath)) {
+        scopesToSearch.set(parentScopePath, {
+          absPath: parentScopePath,
+          id: "⬆",
+        });
+      }
+    } catch {
+      // Ignore
+    }
+  }
+
+  type ScopeMatch = {
+    scopeAbsPath: string;
+    scopeId: string;
+    taskId: string;
+  };
+  const matches: ScopeMatch[] = [];
+
+  for (const [, scope] of scopesToSearch) {
+    try {
+      const index = await loadIndexFrom(scope.absPath);
+      const allIds = Object.keys(index.tasks);
+      const prefixMatches = allIds.filter((id) =>
+        id.toLowerCase().startsWith(input.toLowerCase())
+      );
+
+      for (const taskId of prefixMatches) {
+        matches.push({
+          scopeAbsPath: scope.absPath,
+          scopeId: scope.id,
+          taskId,
+        });
+      }
+    } catch {
+      continue; // Skip scopes that can't be loaded
+    }
+  }
+
+  if (matches.length === 0) {
+    throw new WtError(
+      "task_not_found",
+      `No task found matching prefix: ${input} (searched all scopes)`,
+    );
+  }
+
+  if (matches.length === 1) {
+    const match = matches[0];
+    const scopeDir = match.scopeAbsPath.slice(0, -WORKLOG_DIR.length - 1);
+    Deno.chdir(scopeDir);
+    return match.taskId;
+  }
+
+  // Multiple matches: build helpful error message
+  const allIds = matches.map((m) => m.taskId);
+  const lines = [
+    `Ambiguous task ID prefix '${input}' matches ${matches.length} tasks across scopes:`,
+  ];
+  for (const m of matches.slice(0, 10)) {
+    const shortId = getShortId(m.taskId, allIds);
+    lines.push(`  ${m.scopeId}:${shortId}`);
+  }
+  if (matches.length > 10) {
+    lines.push(`  ... and ${matches.length - 10} more`);
+  }
+  throw new WtError("invalid_args", lines.join("\n"));
+}
+
+/**
+ * Resolve task ID with env fallback + cross-scope resolution.
+ * Used by Cliffy handlers that need both features.
+ */
+async function resolveTaskIdWithEnvFallbackAcrossScopes(
+  taskId: string | undefined,
+  gitRoot: string | null,
+): Promise<string> {
+  const id = taskId ?? ENV_TASK_ID;
+  if (!id) {
+    throw new WtError(
+      "invalid_args",
+      "taskId argument is required (or set WORKLOG_TASK_ID environment variable)",
+    );
+  }
+  return await resolveTaskIdAcrossScopes(id, gitRoot);
+}
+
 // Resolve todo ID prefix to full ID with detailed error message
 function resolveTodoId(prefix: string, todos: Todo[]): string {
   const allIds = todos.map((t) => t.id);
@@ -1196,7 +1415,10 @@ async function resolveScopeIdentifier(
       );
     }
 
-    return `${gitRoot}/${matches[0].path}/${WORKLOG_DIR}`;
+    const childPath = matches[0].path;
+    return isAbsolute(childPath)
+      ? `${childPath}/${WORKLOG_DIR}`
+      : `${gitRoot}/${childPath}/${WORKLOG_DIR}`;
   }
 
   throw new WtError("scope_not_found", `Scope not found: ${identifier}`);
@@ -3401,7 +3623,9 @@ async function cmdList(
 
         if ("children" in config) {
           for (const child of config.children) {
-            const childWorklogPath = `${gitRoot}/${child.path}/${WORKLOG_DIR}`;
+            const childWorklogPath = isAbsolute(child.path)
+              ? `${child.path}/${WORKLOG_DIR}`
+              : `${gitRoot}/${child.path}/${WORKLOG_DIR}`;
             const childIndexPath = `${childWorklogPath}/index.json`;
 
             if (!(await exists(childIndexPath))) {
@@ -5038,12 +5262,20 @@ const todoListCmd = new Command()
   .option("--scope <scope:string>", "Target specific scope")
   .action(async (options, taskId) => {
     try {
-      await resolveScopeContext(
+      const { gitRoot } = await resolveScopeContext(
         options.scope,
         (options as WithGlobalOptions<typeof options>).cwd,
         (options as WithGlobalOptions<typeof options>).worklogDir,
       );
-      const output = await cmdTodoList(taskId);
+      // Pre-resolve across scopes when taskId is provided
+      let resolvedTaskId = taskId;
+      if (taskId) {
+        resolvedTaskId = await resolveTaskIdAcrossScopes(
+          taskId,
+          options.scope ? null : gitRoot,
+        );
+      }
+      const output = await cmdTodoList(resolvedTaskId);
       console.log(
         options.json ? JSON.stringify(output) : formatTodoList(output),
       );
@@ -5059,13 +5291,17 @@ const todoAddCmd = new Command()
   .option("--scope <scope:string>", "Target specific scope")
   .action(async (options, taskId, ...textParts) => {
     try {
-      await resolveScopeContext(
+      const { gitRoot } = await resolveScopeContext(
         options.scope,
         (options as WithGlobalOptions<typeof options>).cwd,
         (options as WithGlobalOptions<typeof options>).worklogDir,
       );
+      const resolvedTaskId = await resolveTaskIdAcrossScopes(
+        taskId,
+        options.scope ? null : gitRoot,
+      );
       const text = textParts.join(" ");
-      const output = await cmdTodoAdd(taskId, text);
+      const output = await cmdTodoAdd(resolvedTaskId, text);
       console.log(
         options.json ? JSON.stringify(output) : formatTodoAdd(output),
       );
@@ -5117,12 +5353,15 @@ const todoNextCmd = new Command()
   .option("--scope <scope:string>", "Target specific scope")
   .action(async (options, taskId?: string) => {
     try {
-      await resolveScopeContext(
+      const { gitRoot } = await resolveScopeContext(
         options.scope,
         (options as WithGlobalOptions<typeof options>).cwd,
         (options as WithGlobalOptions<typeof options>).worklogDir,
       );
-      const resolvedTaskId = await resolveTaskIdWithEnvFallback(taskId);
+      const resolvedTaskId = await resolveTaskIdWithEnvFallbackAcrossScopes(
+        taskId,
+        options.scope ? null : gitRoot,
+      );
       const todo = await cmdTodoNext(resolvedTaskId);
       console.log(options.json ? JSON.stringify(todo) : formatTodoNext(todo));
     } catch (e) {
@@ -5604,10 +5843,14 @@ const traceCmd = new Command()
   })
   .action(async (options, taskId, message) => {
     try {
-      await resolveScopeContext(
+      const { gitRoot } = await resolveScopeContext(
         options.scope,
         (options as WithGlobalOptions<typeof options>).cwd,
         (options as WithGlobalOptions<typeof options>).worklogDir,
+      );
+      const resolvedTaskId = await resolveTaskIdAcrossScopes(
+        taskId,
+        options.scope ? null : gitRoot,
       );
       let timestampValue: string | undefined;
       if (options.timestamp) {
@@ -5622,7 +5865,7 @@ const traceCmd = new Command()
       }
       const metadata = parseMetaOption(options.meta);
       const output = await cmdTrace(
-        taskId,
+        resolvedTaskId,
         message,
         timestampValue,
         options.force ?? false,
@@ -5645,12 +5888,15 @@ const showCmd = new Command()
   .option("--active", "Show only active todos (exclude done/cancelled)")
   .action(async (options, taskId?: string) => {
     try {
-      await resolveScopeContext(
+      const { gitRoot } = await resolveScopeContext(
         options.scope,
         (options as WithGlobalOptions<typeof options>).cwd,
         (options as WithGlobalOptions<typeof options>).worklogDir,
       );
-      const resolvedTaskId = await resolveTaskIdWithEnvFallback(taskId);
+      const resolvedTaskId = await resolveTaskIdWithEnvFallbackAcrossScopes(
+        taskId,
+        options.scope ? null : gitRoot,
+      );
       const output = await cmdShow(resolvedTaskId, options.active ?? false);
       console.log(options.json ? JSON.stringify(output) : formatShow(output));
     } catch (e) {
@@ -5665,12 +5911,15 @@ const tracesCmd = new Command()
   .option("--scope <scope:string>", "Target specific scope")
   .action(async (options, taskId?: string) => {
     try {
-      await resolveScopeContext(
+      const { gitRoot } = await resolveScopeContext(
         options.scope,
         (options as WithGlobalOptions<typeof options>).cwd,
         (options as WithGlobalOptions<typeof options>).worklogDir,
       );
-      const resolvedTaskId = await resolveTaskIdWithEnvFallback(taskId);
+      const resolvedTaskId = await resolveTaskIdWithEnvFallbackAcrossScopes(
+        taskId,
+        options.scope ? null : gitRoot,
+      );
       const output = await cmdTraces(resolvedTaskId);
       console.log(options.json ? JSON.stringify(output) : formatTraces(output));
     } catch (e) {
@@ -5687,13 +5936,17 @@ const checkpointCmd = new Command()
   .option("-t, --timestamp <ts:string>", "Timestamp (currently ignored)")
   .action(async (options, taskId, changes, learnings) => {
     try {
-      await resolveScopeContext(
+      const { gitRoot } = await resolveScopeContext(
         options.scope,
         (options as WithGlobalOptions<typeof options>).cwd,
         (options as WithGlobalOptions<typeof options>).worklogDir,
       );
-      const output = await cmdCheckpoint(
+      const resolvedTaskId = await resolveTaskIdAcrossScopes(
         taskId,
+        options.scope ? null : gitRoot,
+      );
+      const output = await cmdCheckpoint(
+        resolvedTaskId,
         changes,
         learnings,
         options.force ?? false,
@@ -5719,14 +5972,18 @@ const doneCmd = new Command()
   })
   .action(async (options, taskId, changes, learnings) => {
     try {
-      await resolveScopeContext(
+      const { gitRoot } = await resolveScopeContext(
         options.scope,
         (options as WithGlobalOptions<typeof options>).cwd,
         (options as WithGlobalOptions<typeof options>).worklogDir,
       );
+      const resolvedTaskId = await resolveTaskIdAcrossScopes(
+        taskId,
+        options.scope ? null : gitRoot,
+      );
       const metadata = parseMetaOption(options.meta);
       const output = await cmdDone(
-        taskId,
+        resolvedTaskId,
         changes,
         learnings,
         options.force ?? false,
@@ -5745,12 +6002,15 @@ const readyCmd = new Command()
   .option("--scope <scope:string>", "Target specific scope")
   .action(async (options, taskId?: string) => {
     try {
-      await resolveScopeContext(
+      const { gitRoot } = await resolveScopeContext(
         options.scope,
         (options as WithGlobalOptions<typeof options>).cwd,
         (options as WithGlobalOptions<typeof options>).worklogDir,
       );
-      const resolvedTaskId = await resolveTaskIdWithEnvFallback(taskId);
+      const resolvedTaskId = await resolveTaskIdWithEnvFallbackAcrossScopes(
+        taskId,
+        options.scope ? null : gitRoot,
+      );
       const output = await cmdReady(resolvedTaskId);
       console.log(options.json ? JSON.stringify(output) : formatStatus(output));
     } catch (e) {
@@ -5765,12 +6025,15 @@ const startCmd = new Command()
   .option("--scope <scope:string>", "Target specific scope")
   .action(async (options, taskId?: string) => {
     try {
-      await resolveScopeContext(
+      const { gitRoot } = await resolveScopeContext(
         options.scope,
         (options as WithGlobalOptions<typeof options>).cwd,
         (options as WithGlobalOptions<typeof options>).worklogDir,
       );
-      const resolvedTaskId = await resolveTaskIdWithEnvFallback(taskId);
+      const resolvedTaskId = await resolveTaskIdWithEnvFallbackAcrossScopes(
+        taskId,
+        options.scope ? null : gitRoot,
+      );
       const output = await cmdStart(resolvedTaskId);
       console.log(options.json ? JSON.stringify(output) : formatStatus(output));
     } catch (e) {
@@ -5792,7 +6055,7 @@ const runCmd = new Command()
   .option("--create <name:string>", "Create task on-the-fly with given name")
   .action(async (options, ...args: string[]) => {
     try {
-      await resolveScopeContext(
+      const { gitRoot } = await resolveScopeContext(
         options.scope,
         (options as WithGlobalOptions<typeof options>).cwd,
         (options as WithGlobalOptions<typeof options>).worklogDir,
@@ -5812,7 +6075,12 @@ const runCmd = new Command()
             "Usage: wl run <taskId> <cmd...> OR wl run --create <name> <cmd...>",
           );
         }
-        taskId = args[0];
+        // Pre-resolve across scopes before passing to cmdRun
+        const resolved = await resolveTaskIdAcrossScopes(
+          args[0],
+          options.scope ? null : gitRoot,
+        );
+        taskId = resolved;
         cmd = args.slice(1);
       }
 
@@ -5850,7 +6118,7 @@ const claudeCmd = new Command()
   .option("--scope <scope:string>", "Target specific scope")
   .action(async (options, taskId?: string, ...args: string[]) => {
     try {
-      await resolveScopeContext(
+      const { gitRoot } = await resolveScopeContext(
         options.scope,
         (options as WithGlobalOptions<typeof options>).cwd,
         (options as WithGlobalOptions<typeof options>).worklogDir,
@@ -5865,6 +6133,14 @@ const claudeCmd = new Command()
         // taskId is actually a Claude arg
         actualTaskId = undefined;
         claudeArgs = [taskId, ...args];
+      }
+
+      // Pre-resolve across scopes before passing to cmdClaude
+      if (actualTaskId) {
+        actualTaskId = await resolveTaskIdAcrossScopes(
+          actualTaskId,
+          options.scope ? null : gitRoot,
+        );
       }
 
       const output = await cmdClaude(actualTaskId, claudeArgs);
@@ -5887,12 +6163,15 @@ const updateCmd = new Command()
   .option("--desc <desc:string>", "New description for the task")
   .action(async (options, taskId?: string) => {
     try {
-      await resolveScopeContext(
+      const { gitRoot } = await resolveScopeContext(
         options.scope,
         (options as WithGlobalOptions<typeof options>).cwd,
         (options as WithGlobalOptions<typeof options>).worklogDir,
       );
-      const resolvedTaskId = await resolveTaskIdWithEnvFallback(taskId);
+      const resolvedTaskId = await resolveTaskIdWithEnvFallbackAcrossScopes(
+        taskId,
+        options.scope ? null : gitRoot,
+      );
       const output = await cmdUpdate(
         resolvedTaskId,
         options.name,
@@ -5915,7 +6194,7 @@ const cancelCmd = new Command()
   .option("--scope <scope:string>", "Target specific scope")
   .action(async (options, taskId?: string, reason?: string) => {
     try {
-      await resolveScopeContext(
+      const { gitRoot } = await resolveScopeContext(
         options.scope,
         (options as WithGlobalOptions<typeof options>).cwd,
         (options as WithGlobalOptions<typeof options>).worklogDir,
@@ -5929,10 +6208,16 @@ const cancelCmd = new Command()
       if (!reason && taskId && HAS_ENV_TASK_ID) {
         // Single arg with env var: arg is reason, taskId from env
         resolvedReason = taskId;
-        resolvedTaskId = await resolveTaskIdWithEnvFallback(undefined);
+        resolvedTaskId = await resolveTaskIdWithEnvFallbackAcrossScopes(
+          undefined,
+          options.scope ? null : gitRoot,
+        );
       } else {
         // Normal case: first arg is taskId, second is reason
-        resolvedTaskId = await resolveTaskIdWithEnvFallback(taskId);
+        resolvedTaskId = await resolveTaskIdWithEnvFallbackAcrossScopes(
+          taskId,
+          options.scope ? null : gitRoot,
+        );
         resolvedReason = reason;
       }
 
@@ -5957,7 +6242,7 @@ const metaCmd = new Command()
   .option("--delete <key:string>", "Delete a metadata key")
   .action(async (options, taskId?: string, key?: string, value?: string) => {
     try {
-      await resolveScopeContext(
+      const { gitRoot } = await resolveScopeContext(
         options.scope,
         (options as WithGlobalOptions<typeof options>).cwd,
         (options as WithGlobalOptions<typeof options>).worklogDir,
@@ -5973,12 +6258,18 @@ const metaCmd = new Command()
 
       if (hasEnvTaskId && taskId && !value) {
         // With env var: taskId→key, key→value
-        resolvedTaskId = await resolveTaskIdWithEnvFallback(undefined);
+        resolvedTaskId = await resolveTaskIdWithEnvFallbackAcrossScopes(
+          undefined,
+          options.scope ? null : gitRoot,
+        );
         resolvedKey = taskId;
         resolvedValue = key;
       } else {
         // Normal case: taskId is taskId, key is key, value is value
-        resolvedTaskId = await resolveTaskIdWithEnvFallback(taskId);
+        resolvedTaskId = await resolveTaskIdWithEnvFallbackAcrossScopes(
+          taskId,
+          options.scope ? null : gitRoot,
+        );
         resolvedKey = key;
         resolvedValue = value;
       }
@@ -6004,19 +6295,29 @@ const tagsCmd = new Command()
   .option("--remove <tag:string>", "Remove tag (repeatable)", { collect: true })
   .action(async (options, taskId) => {
     try {
-      await resolveScopeContext(
+      const { gitRoot } = await resolveScopeContext(
         options.scope,
         (options as WithGlobalOptions<typeof options>).cwd,
         (options as WithGlobalOptions<typeof options>).worklogDir,
       );
+
+      // Pre-resolve across scopes when taskId is provided
+      let resolvedTaskId = taskId;
+      if (taskId) {
+        resolvedTaskId = await resolveTaskIdAcrossScopes(
+          taskId,
+          options.scope ? null : gitRoot,
+        );
+      }
+
       const cwd = Deno.cwd();
-      const gitRoot = await findGitRoot(cwd);
+      const effectiveGitRoot = gitRoot ?? await findGitRoot(cwd);
 
       const output = await cmdTags(
-        taskId,
+        resolvedTaskId,
         options.add,
         options.remove,
-        gitRoot,
+        effectiveGitRoot,
         cwd,
       );
 
