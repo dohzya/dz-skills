@@ -12,6 +12,7 @@ import {
   isValidTaskStatus,
   type ListOutput,
   type MoveOutput,
+  type RunOutput,
   type ScopeConfig,
   type ScopeConfigChild,
   type ScopeConfigParent,
@@ -99,6 +100,16 @@ const WORKLOG_DEPTH_LIMIT = (() => {
     return 5;
   }
 })();
+
+// Read WORKLOG_TASK_ID once at startup (safe even without --allow-env)
+const ENV_TASK_ID: string | undefined = (() => {
+  try {
+    return Deno.env.get("WORKLOG_TASK_ID") || undefined;
+  } catch {
+    return undefined;
+  }
+})();
+const HAS_ENV_TASK_ID = !!ENV_TASK_ID;
 
 // Pre-computed section IDs for fixed section titles
 let ENTRIES_ID: string | null = null;
@@ -707,6 +718,23 @@ async function resolveTaskId(prefix: string): Promise<string> {
   }
 
   return matches[0];
+}
+
+/**
+ * Resolve task ID with fallback to WORKLOG_TASK_ID environment variable.
+ * Throws clear error if neither is provided.
+ */
+async function resolveTaskIdWithEnvFallback(
+  taskId?: string,
+): Promise<string> {
+  const id = taskId ?? ENV_TASK_ID;
+  if (!id) {
+    throw new WtError(
+      "invalid_args",
+      "taskId argument is required (or set WORKLOG_TASK_ID environment variable)",
+    );
+  }
+  return await resolveTaskId(id);
 }
 
 // Resolve todo ID prefix to full ID with detailed error message
@@ -2500,6 +2528,129 @@ async function cmdStart(taskId: string): Promise<StatusOutput> {
   }
 
   return { status: "task_started" };
+}
+
+async function cmdRun(
+  cmd: string[],
+  taskId?: string,
+  createName?: string,
+): Promise<RunOutput> {
+  let resolvedTaskId: string;
+  let wasCreated = false;
+
+  // Either use provided taskId or create a new task
+  if (createName) {
+    const createOutput = await cmdAdd(createName);
+    // cmdAdd returns short ID, resolve it to full ID
+    resolvedTaskId = await resolveTaskId(createOutput.id);
+    wasCreated = true;
+  } else if (taskId) {
+    await purge();
+    resolvedTaskId = await resolveTaskId(taskId);
+  } else {
+    throw new WtError(
+      "invalid_args",
+      "Either taskId or --create must be provided",
+    );
+  }
+
+  // Verify task exists
+  await loadTaskContent(resolvedTaskId);
+
+  // Execute command with WORKLOG_TASK_ID set
+  const command = new Deno.Command(cmd[0], {
+    args: cmd.slice(1),
+    env: {
+      ...Deno.env.toObject(),
+      WORKLOG_TASK_ID: resolvedTaskId,
+    },
+    stdin: "inherit",
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+
+  const { code } = await command.output();
+
+  return {
+    taskId: resolvedTaskId,
+    exitCode: code,
+    created: wasCreated,
+  };
+}
+
+async function cmdClaude(
+  taskId?: string,
+  claudeArgs: string[] = [],
+): Promise<RunOutput> {
+  await purge();
+
+  // Resolve taskId with env fallback
+  const resolvedTaskId = await resolveTaskIdWithEnvFallback(taskId);
+
+  // Load task details
+  const taskInfo = await cmdShow(resolvedTaskId, false);
+
+  // Build system prompt with task context
+  const recentTraces = taskInfo.entries_since_checkpoint
+    .slice(-5)
+    .map((e) => `  - [${e.ts}] ${e.msg}`)
+    .join("\n");
+
+  const todos = taskInfo.todos
+    .filter((t) => t.status === "todo")
+    .map((t) => `  - [ ] ${t.text}`)
+    .join("\n");
+
+  const systemPrompt = `
+# Current Worktask Context
+
+You are working on the following task:
+
+**Task ID**: ${taskInfo.fullId} (short: ${taskInfo.task})
+**Name**: ${taskInfo.name}
+**Status**: ${taskInfo.status}
+**Created**: ${taskInfo.created}
+${taskInfo.started ? `**Started**: ${taskInfo.started}` : ""}
+
+## Description
+${taskInfo.desc || "(no description)"}
+
+${recentTraces ? `## Recent Traces\n${recentTraces}` : ""}
+
+${todos ? `## TODO\n${todos}` : ""}
+
+---
+
+## WORKLOG_TASK_ID
+
+The environment variable is set to: ${resolvedTaskId}
+
+Commands that work **without taskId** (uses WORKLOG_TASK_ID automatically):
+  wl show, wl start, wl ready, wl traces, wl update, wl cancel, wl meta, wl todo next
+
+Commands that still **require taskId as first argument** (ambiguous with other args):
+  wl trace <id> "msg", wl checkpoint <id> ..., wl done <id> ...
+`.trim();
+
+  // Launch Claude with appended system prompt
+  const command = new Deno.Command("claude", {
+    args: ["--append-system-prompt", systemPrompt, ...claudeArgs],
+    env: {
+      ...Deno.env.toObject(),
+      WORKLOG_TASK_ID: resolvedTaskId,
+    },
+    stdin: "inherit",
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+
+  const { code } = await command.output();
+
+  return {
+    taskId: resolvedTaskId,
+    exitCode: code,
+    created: false,
+  };
 }
 
 async function cmdUpdate(
@@ -4961,17 +5112,18 @@ const todoSetCmd = new Command()
 
 const todoNextCmd = new Command()
   .description("Show next available todo")
-  .arguments("[taskId:string]")
+  .arguments(HAS_ENV_TASK_ID ? "[taskId:string]" : "<taskId:string>")
   .option("--json", "Output as JSON")
   .option("--scope <scope:string>", "Target specific scope")
-  .action(async (options, taskId) => {
+  .action(async (options, taskId?: string) => {
     try {
       await resolveScopeContext(
         options.scope,
         (options as WithGlobalOptions<typeof options>).cwd,
         (options as WithGlobalOptions<typeof options>).worklogDir,
       );
-      const todo = await cmdTodoNext(taskId);
+      const resolvedTaskId = await resolveTaskIdWithEnvFallback(taskId);
+      const todo = await cmdTodoNext(resolvedTaskId);
       console.log(options.json ? JSON.stringify(todo) : formatTodoNext(todo));
     } catch (e) {
       handleError(e, options.json ?? false);
@@ -5487,18 +5639,19 @@ const showCmd = new Command()
     "Show task context (alias for 'logs')\n" +
       "Use before creating checkpoints to review traces",
   )
-  .arguments("<taskId:string>")
+  .arguments(HAS_ENV_TASK_ID ? "[taskId:string]" : "<taskId:string>")
   .option("--json", "Output as JSON")
   .option("--scope <scope:string>", "Target specific scope")
   .option("--active", "Show only active todos (exclude done/cancelled)")
-  .action(async (options, taskId) => {
+  .action(async (options, taskId?: string) => {
     try {
       await resolveScopeContext(
         options.scope,
         (options as WithGlobalOptions<typeof options>).cwd,
         (options as WithGlobalOptions<typeof options>).worklogDir,
       );
-      const output = await cmdShow(taskId, options.active ?? false);
+      const resolvedTaskId = await resolveTaskIdWithEnvFallback(taskId);
+      const output = await cmdShow(resolvedTaskId, options.active ?? false);
       console.log(options.json ? JSON.stringify(output) : formatShow(output));
     } catch (e) {
       handleError(e, options.json ?? false);
@@ -5507,17 +5660,18 @@ const showCmd = new Command()
 
 const tracesCmd = new Command()
   .description("List all traces for a task")
-  .arguments("<taskId:string>")
+  .arguments(HAS_ENV_TASK_ID ? "[taskId:string]" : "<taskId:string>")
   .option("--json", "Output as JSON")
   .option("--scope <scope:string>", "Target specific scope")
-  .action(async (options, taskId) => {
+  .action(async (options, taskId?: string) => {
     try {
       await resolveScopeContext(
         options.scope,
         (options as WithGlobalOptions<typeof options>).cwd,
         (options as WithGlobalOptions<typeof options>).worklogDir,
       );
-      const output = await cmdTraces(taskId);
+      const resolvedTaskId = await resolveTaskIdWithEnvFallback(taskId);
+      const output = await cmdTraces(resolvedTaskId);
       console.log(options.json ? JSON.stringify(output) : formatTraces(output));
     } catch (e) {
       handleError(e, options.json ?? false);
@@ -5586,17 +5740,18 @@ const doneCmd = new Command()
 
 const readyCmd = new Command()
   .description("Mark task as ready to work on")
-  .arguments("<taskId:string>")
+  .arguments(HAS_ENV_TASK_ID ? "[taskId:string]" : "<taskId:string>")
   .option("--json", "Output as JSON")
   .option("--scope <scope:string>", "Target specific scope")
-  .action(async (options, taskId) => {
+  .action(async (options, taskId?: string) => {
     try {
       await resolveScopeContext(
         options.scope,
         (options as WithGlobalOptions<typeof options>).cwd,
         (options as WithGlobalOptions<typeof options>).worklogDir,
       );
-      const output = await cmdReady(taskId);
+      const resolvedTaskId = await resolveTaskIdWithEnvFallback(taskId);
+      const output = await cmdReady(resolvedTaskId);
       console.log(options.json ? JSON.stringify(output) : formatStatus(output));
     } catch (e) {
       handleError(e, options.json ?? false);
@@ -5605,18 +5760,119 @@ const readyCmd = new Command()
 
 const startCmd = new Command()
   .description("Start working on a task")
-  .arguments("<taskId:string>")
+  .arguments(HAS_ENV_TASK_ID ? "[taskId:string]" : "<taskId:string>")
   .option("--json", "Output as JSON")
   .option("--scope <scope:string>", "Target specific scope")
-  .action(async (options, taskId) => {
+  .action(async (options, taskId?: string) => {
     try {
       await resolveScopeContext(
         options.scope,
         (options as WithGlobalOptions<typeof options>).cwd,
         (options as WithGlobalOptions<typeof options>).worklogDir,
       );
-      const output = await cmdStart(taskId);
+      const resolvedTaskId = await resolveTaskIdWithEnvFallback(taskId);
+      const output = await cmdStart(resolvedTaskId);
       console.log(options.json ? JSON.stringify(output) : formatStatus(output));
+    } catch (e) {
+      handleError(e, options.json ?? false);
+    }
+  });
+
+const runCmd = new Command()
+  .description(
+    "Execute a command with WORKLOG_TASK_ID set in environment\n\n" +
+      "Examples:\n" +
+      "  wl run <taskId> npm test\n" +
+      '  wl run --create "task name" npm test',
+  )
+  .arguments("<args...:string>")
+  .stopEarly()
+  .option("--json", "Output as JSON")
+  .option("--scope <scope:string>", "Target specific scope")
+  .option("--create <name:string>", "Create task on-the-fly with given name")
+  .action(async (options, ...args: string[]) => {
+    try {
+      await resolveScopeContext(
+        options.scope,
+        (options as WithGlobalOptions<typeof options>).cwd,
+        (options as WithGlobalOptions<typeof options>).worklogDir,
+      );
+
+      let taskId: string | undefined;
+      let cmd: string[];
+
+      if (options.create) {
+        // wl run --create "name" <cmd...>
+        cmd = args;
+      } else {
+        // wl run <taskId> <cmd...>
+        if (args.length < 2) {
+          throw new WtError(
+            "invalid_args",
+            "Usage: wl run <taskId> <cmd...> OR wl run --create <name> <cmd...>",
+          );
+        }
+        taskId = args[0];
+        cmd = args.slice(1);
+      }
+
+      if (cmd.length === 0) {
+        throw new WtError("invalid_args", "No command provided to execute");
+      }
+
+      const output = await cmdRun(cmd, taskId, options.create);
+      if (options.json) {
+        console.log(JSON.stringify(output));
+      } else {
+        const taskPrefix = output.created ? "Created and ran" : "Ran";
+        console.log(
+          `${taskPrefix} task ${output.taskId} (exit code: ${output.exitCode})`,
+        );
+      }
+    } catch (e) {
+      handleError(e, options.json ?? false);
+    }
+  });
+
+const claudeCmd = new Command()
+  .description(
+    "Launch Claude with task context injected via system prompt\n\n" +
+      "Examples:\n" +
+      "  wl claude              # Launch Claude with current task (from WORKLOG_TASK_ID)\n" +
+      "  wl claude <taskId>     # Launch Claude with specific task\n" +
+      "  wl claude <taskId> -c  # Pass Claude args when taskId provided\n\n" +
+      "For complex args, use 'wl run':\n" +
+      "  wl run <taskId> claude -c --model opus",
+  )
+  .arguments("[taskId:string] [args...:string]")
+  .stopEarly()
+  .option("--json", "Output as JSON")
+  .option("--scope <scope:string>", "Target specific scope")
+  .action(async (options, taskId?: string, ...args: string[]) => {
+    try {
+      await resolveScopeContext(
+        options.scope,
+        (options as WithGlobalOptions<typeof options>).cwd,
+        (options as WithGlobalOptions<typeof options>).worklogDir,
+      );
+
+      // If first arg looks like a taskId (not starting with -), use it as taskId
+      // Otherwise, treat it as a Claude arg
+      let actualTaskId: string | undefined = taskId;
+      let claudeArgs: string[] = args;
+
+      if (taskId && taskId.startsWith("-")) {
+        // taskId is actually a Claude arg
+        actualTaskId = undefined;
+        claudeArgs = [taskId, ...args];
+      }
+
+      const output = await cmdClaude(actualTaskId, claudeArgs);
+      if (options.json) {
+        console.log(JSON.stringify(output));
+      } else if (output.exitCode !== 0) {
+        console.log(`Claude exited with code ${output.exitCode}`);
+      }
     } catch (e) {
       handleError(e, options.json ?? false);
     }
@@ -5624,19 +5880,24 @@ const startCmd = new Command()
 
 const updateCmd = new Command()
   .description("Update task name or description")
-  .arguments("<taskId:string>")
+  .arguments(HAS_ENV_TASK_ID ? "[taskId:string]" : "<taskId:string>")
   .option("--json", "Output as JSON")
   .option("--scope <scope:string>", "Target specific scope")
   .option("--name <name:string>", "New name for the task")
   .option("--desc <desc:string>", "New description for the task")
-  .action(async (options, taskId) => {
+  .action(async (options, taskId?: string) => {
     try {
       await resolveScopeContext(
         options.scope,
         (options as WithGlobalOptions<typeof options>).cwd,
         (options as WithGlobalOptions<typeof options>).worklogDir,
       );
-      const output = await cmdUpdate(taskId, options.name, options.desc);
+      const resolvedTaskId = await resolveTaskIdWithEnvFallback(taskId);
+      const output = await cmdUpdate(
+        resolvedTaskId,
+        options.name,
+        options.desc,
+      );
       console.log(options.json ? JSON.stringify(output) : formatStatus(output));
     } catch (e) {
       handleError(e, options.json ?? false);
@@ -5645,17 +5906,37 @@ const updateCmd = new Command()
 
 const cancelCmd = new Command()
   .description("Cancel/abandon a task (marks as cancelled)")
-  .arguments("<taskId:string> [reason:string]")
+  .arguments(
+    HAS_ENV_TASK_ID
+      ? "[taskId:string] [reason:string]"
+      : "<taskId:string> [reason:string]",
+  )
   .option("--json", "Output as JSON")
   .option("--scope <scope:string>", "Target specific scope")
-  .action(async (options, taskId, reason) => {
+  .action(async (options, taskId?: string, reason?: string) => {
     try {
       await resolveScopeContext(
         options.scope,
         (options as WithGlobalOptions<typeof options>).cwd,
         (options as WithGlobalOptions<typeof options>).worklogDir,
       );
-      const output = await cmdCancel(taskId, reason);
+
+      // Smart argument resolution:
+      // If only one arg provided AND WORKLOG_TASK_ID exists, it's the reason
+      let resolvedTaskId: string;
+      let resolvedReason: string | undefined;
+
+      if (!reason && taskId && HAS_ENV_TASK_ID) {
+        // Single arg with env var: arg is reason, taskId from env
+        resolvedReason = taskId;
+        resolvedTaskId = await resolveTaskIdWithEnvFallback(undefined);
+      } else {
+        // Normal case: first arg is taskId, second is reason
+        resolvedTaskId = await resolveTaskIdWithEnvFallback(taskId);
+        resolvedReason = reason;
+      }
+
+      const output = await cmdCancel(resolvedTaskId, resolvedReason);
       console.log(options.json ? JSON.stringify(output) : formatStatus(output));
     } catch (e) {
       handleError(e, options.json ?? false);
@@ -5664,20 +5945,50 @@ const cancelCmd = new Command()
 
 const metaCmd = new Command()
   .description(
-    "Get or set task metadata (e.g., 'wl meta <id> status active' to reopen a completed task)",
+    "Get or set task metadata (e.g., 'wl meta status active' to reopen current task)",
   )
-  .arguments("<taskId:string> [key:string] [value:string]")
+  .arguments(
+    HAS_ENV_TASK_ID
+      ? "[taskId:string] [key:string] [value:string]"
+      : "<taskId:string> [key:string] [value:string]",
+  )
   .option("--json", "Output as JSON")
   .option("--scope <scope:string>", "Target specific scope")
   .option("--delete <key:string>", "Delete a metadata key")
-  .action(async (options, taskId, key, value) => {
+  .action(async (options, taskId?: string, key?: string, value?: string) => {
     try {
       await resolveScopeContext(
         options.scope,
         (options as WithGlobalOptions<typeof options>).cwd,
         (options as WithGlobalOptions<typeof options>).worklogDir,
       );
-      const output = await cmdMeta(taskId, key, value, options.delete);
+
+      // Smart argument resolution:
+      // If WORKLOG_TASK_ID exists and args provided, shift interpretation
+      let resolvedTaskId: string;
+      let resolvedKey: string | undefined;
+      let resolvedValue: string | undefined;
+
+      const hasEnvTaskId = HAS_ENV_TASK_ID;
+
+      if (hasEnvTaskId && taskId && !value) {
+        // With env var: taskId→key, key→value
+        resolvedTaskId = await resolveTaskIdWithEnvFallback(undefined);
+        resolvedKey = taskId;
+        resolvedValue = key;
+      } else {
+        // Normal case: taskId is taskId, key is key, value is value
+        resolvedTaskId = await resolveTaskIdWithEnvFallback(taskId);
+        resolvedKey = key;
+        resolvedValue = value;
+      }
+
+      const output = await cmdMeta(
+        resolvedTaskId,
+        resolvedKey,
+        resolvedValue,
+        options.delete,
+      );
       console.log(options.json ? JSON.stringify(output) : formatMeta(output));
     } catch (e) {
       handleError(e, options.json ?? false);
@@ -5953,6 +6264,8 @@ const cli = new Command()
   .command("create", createCmd)
   .command("ready", readyCmd)
   .command("start", startCmd)
+  .command("run", runCmd)
+  .command("claude", claudeCmd)
   .command("update", updateCmd)
   .command("task", taskCmd)
   .command("trace", traceCmd)

@@ -1079,9 +1079,7 @@ Deno.test("worklog import - handles external worktree with --scope-to-tag", asyn
     Deno.chdir(tempDirExternal);
     await main(["init"]);
     await main(["task", "create", "External task"]);
-    const listOutput = await captureOutput(() => main(["list", "--json"]));
-    const { tasks } = JSON.parse(listOutput);
-    const taskId = tasks[0].id;
+    await captureOutput(() => main(["list", "--json"]));
 
     // Import from external worktree with --scope-to-tag
     Deno.chdir(tempDirRoot);

@@ -204,6 +204,12 @@ export interface TodoAddOutput {
   taskId: string;
 }
 
+export interface RunOutput {
+  taskId: string;
+  exitCode: number;
+  created?: boolean; // true if task was created with --create
+}
+
 // Error handling
 export type WtErrorCode =
   | "not_initialized"
