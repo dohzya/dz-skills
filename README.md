@@ -112,18 +112,25 @@ See [packages/tools/README.md](packages/tools/README.md) for complete API docume
 
 ## Development
 
+**First-time setup:**
 ```bash
-# Run tests
-task test
+bash setup.sh  # Installs mise and Deno
+```
 
-# Check code (format + type + lint)
-task check
+**Commands:**
+```bash
+task test      # Run tests
+task fmt       # Format code
+task validate  # Run all checks (fmt + check + lint + test)
+```
 
-# Format code
-task fmt
+**Testing local changes:**
 
-# Run all checks
-task validate
+⚠️ Installed CLI tools (`wl`, `md`) use published JSR versions. To test local code:
+
+```bash
+deno -A packages/tools/worklog/cli.ts <command>
+deno -A packages/tools/markdown-surgeon/cli.ts <command>
 ```
 
 See [AGENTS.md](AGENTS.md) for AI agent guidelines when contributing.
