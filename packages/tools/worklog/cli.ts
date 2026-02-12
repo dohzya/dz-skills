@@ -1671,45 +1671,50 @@ async function parseTaskFile(content: string): Promise<ParsedTask> {
   if (checkpointsSection) {
     const checkpointsEnd = getSectionEndLine(doc, checkpointsSection, true);
 
-    for (const section of doc.sections) {
-      if (
-        section.level === 2 &&
-        section.line > checkpointsSection.line &&
-        section.line <= checkpointsEnd
-      ) {
-        // Each checkpoint has ### Changes and ### Learnings
-        let changes = "";
-        let learnings = "";
+    // Only consider level-2 sections with timestamp-like titles as checkpoints
+    // (to avoid treating content headers like "## Résumé" as checkpoints)
+    const timestampRegex = /^\d{4}-\d{2}-\d{2}/;
+    const checkpointSections = doc.sections.filter(
+      (s) =>
+        s.level === 2 &&
+        s.line > checkpointsSection.line &&
+        s.line <= checkpointsEnd &&
+        timestampRegex.test(s.title),
+    );
 
-        for (const subsection of doc.sections) {
-          if (
-            subsection.level === 3 &&
-            subsection.line > section.line
-          ) {
-            const subEnd = getSectionEndLine(doc, subsection, false);
-            // Check if this subsection is within current checkpoint
-            const nextL2 = doc.sections.find(
-              (s) =>
-                s.level === 2 && s.line > section.line &&
-                s.line <= checkpointsEnd,
-            );
-            const checkpointEnd = nextL2 ? nextL2.line - 1 : checkpointsEnd;
+    for (let i = 0; i < checkpointSections.length; i++) {
+      const section = checkpointSections[i];
+      const nextSection = checkpointSections[i + 1];
+      const cpEnd = nextSection ? nextSection.line - 1 : checkpointsEnd;
 
-            if (subsection.line > checkpointEnd) break;
+      // Scan raw lines for ### Changes and ### Learnings headers
+      // (instead of using doc.sections to be resilient to headers in content)
+      let changesHeaderIdx = -1;
+      let learningsHeaderIdx = -1;
 
-            const contentLines = doc.lines.slice(subsection.line, subEnd);
-            const content = contentLines.join("\n").trim();
-
-            if (subsection.title.toLowerCase() === "changes") {
-              changes = content;
-            } else if (subsection.title.toLowerCase() === "learnings") {
-              learnings = content;
-            }
-          }
+      for (let lineIdx = section.line; lineIdx < cpEnd; lineIdx++) {
+        const line = doc.lines[lineIdx];
+        if (/^###\s+Changes\s*$/.test(line)) changesHeaderIdx = lineIdx;
+        else if (/^###\s+Learnings\s*$/.test(line)) {
+          learningsHeaderIdx = lineIdx;
         }
-
-        checkpoints.push({ ts: section.title, changes, learnings });
       }
+
+      let changes = "";
+      let learnings = "";
+
+      if (changesHeaderIdx >= 0) {
+        const contentEnd = learningsHeaderIdx >= 0 ? learningsHeaderIdx : cpEnd;
+        changes = doc.lines.slice(changesHeaderIdx + 1, contentEnd).join("\n")
+          .trim();
+      }
+
+      if (learningsHeaderIdx >= 0) {
+        learnings = doc.lines.slice(learningsHeaderIdx + 1, cpEnd).join("\n")
+          .trim();
+      }
+
+      checkpoints.push({ ts: section.title, changes, learnings });
     }
   }
 

@@ -2899,6 +2899,68 @@ Deno.test("show - displays multiline checkpoint formatting", async () => {
   }
 });
 
+Deno.test("show - parses checkpoint with markdown headers in content", async () => {
+  const tempDir = await Deno.makeTempDir();
+  const originalCwd = Deno.cwd();
+  try {
+    Deno.chdir(tempDir);
+    await main(["init"]);
+
+    await main(["create", "--started", "Task with structured checkpoint"]);
+    const _ls = await captureOutput(() => main(["list", "--all", "--json"]));
+    const id = JSON.parse(_ls).tasks[0].id;
+
+    await main(["trace", id, "Work done"]);
+
+    // Checkpoint content with markdown headers (simulates LLM-generated content)
+    const changes = `Implementation complete
+
+## Summary
+Added new feature with ports & adapters
+
+## Files Modified
+- src/main.ts
+- src/adapter.ts
+
+## Metrics
+- Tests: 100%`;
+
+    const learnings = `Key discoveries
+
+## Performance
+System is 2x faster
+
+### 1. Caching helped
+Added LRU cache
+
+### 2. Lazy loading
+Reduced startup time`;
+
+    await main(["checkpoint", id, changes, learnings]);
+
+    const showOutput = await captureOutput(() => main(["show", id]));
+
+    // Verify all content including markdown headers is preserved
+    assertStringIncludes(showOutput, "last checkpoint:");
+    assertStringIncludes(showOutput, "Implementation complete");
+    assertStringIncludes(showOutput, "## Summary");
+    assertStringIncludes(showOutput, "Added new feature");
+    assertStringIncludes(showOutput, "## Files Modified");
+    assertStringIncludes(showOutput, "- src/main.ts");
+    assertStringIncludes(showOutput, "## Metrics");
+    assertStringIncludes(showOutput, "Tests: 100%");
+
+    assertStringIncludes(showOutput, "Key discoveries");
+    assertStringIncludes(showOutput, "## Performance");
+    assertStringIncludes(showOutput, "System is 2x faster");
+    assertStringIncludes(showOutput, "### 1. Caching helped");
+    assertStringIncludes(showOutput, "### 2. Lazy loading");
+  } finally {
+    Deno.chdir(originalCwd);
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});
+
 // ============================================================================
 // Critical coverage: list --cancelled
 // ============================================================================
