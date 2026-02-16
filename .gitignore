@@ -1,3 +1,4 @@
 /dist/
 .worklog/
+.worktrees/
 mise.toml
