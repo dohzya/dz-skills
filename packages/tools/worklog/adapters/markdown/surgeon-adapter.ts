@@ -21,6 +21,7 @@
 
 import type { Checkpoint } from "../../domain/entities/checkpoint.ts";
 import type { Entry } from "../../domain/entities/entry.ts";
+import { WtError } from "../../domain/entities/errors.ts";
 import type { TaskMeta } from "../../domain/entities/task.ts";
 import type { Todo, TodoStatus } from "../../domain/entities/todo.ts";
 import type {
@@ -89,9 +90,18 @@ export class MarkdownSurgeonAdapter implements MarkdownService {
 
   async parseTaskFile(content: string): Promise<ParsedTaskFile> {
     const doc = await this.parseDocumentUC.execute({ content });
+
+    // Validate that frontmatter delimiter exists (even if content is corrupted)
+    if (!doc.frontmatter) {
+      throw new WtError(
+        "invalid_task_file",
+        "Invalid task file: missing frontmatter",
+      );
+    }
+
     const yamlContent = this.frontmatterUC.getFrontmatterContent(doc);
 
-    // Parse frontmatter into TaskMeta
+    // Parse frontmatter into TaskMeta (parser returns {} for corrupted YAML)
     const rawMeta = this.yamlService.parse(yamlContent);
     const meta = rawMeta as unknown as TaskMeta;
 

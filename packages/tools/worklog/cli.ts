@@ -31,8 +31,8 @@ import {
   type TodoStatus,
   type TraceOutput,
   type TracesOutput,
-  WtError,
 } from "./types.ts";
+import { WtError } from "./domain/entities/errors.ts";
 import {
   findSection,
   getFrontmatterContent,

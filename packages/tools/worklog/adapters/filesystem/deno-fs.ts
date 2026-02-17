@@ -56,7 +56,7 @@ export class DenoFileSystem implements FileSystem {
 
   async remove(path: string): Promise<void> {
     try {
-      await Deno.remove(path);
+      await Deno.remove(path, { recursive: true });
     } catch {
       // Ignore if file doesn't exist - matches original deleteFile behavior
     }
