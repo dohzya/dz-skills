@@ -264,7 +264,13 @@ function initializeUseCases(): void {
   updateTaskUseCase = new UpdateTaskUseCase(indexRepo, taskRepo, markdownService);
 
   // Trace use cases
-  addTraceUseCase = new AddTraceUseCase(indexRepo, taskRepo, markdownService);
+  addTraceUseCase = new AddTraceUseCase(
+    indexRepo,
+    taskRepo,
+    markdownService,
+    undefined, // Use default getTimestamp
+    warn,
+  );
   listTracesUseCase = new ListTracesUseCase(indexRepo, taskRepo);
   createCheckpointUseCase = new CreateCheckpointUseCase(indexRepo, taskRepo, markdownService);
 
