@@ -21,10 +21,12 @@ wl done <id> "Changes" "Learnings"     # 5. Complete
 Create a worktask at the start, trace each significant action, complete after commit.
 
 **Good traces = causes + next steps:**
+
 - ✅ `"Tried X - failed (cause: Y), next: Z"`
 - ❌ `"Tried X"` / `"Doesn't work"`
 
 **Commands:**
+
 ```bash
 wl task create "..."       # Create
 wl trace <id> "..."        # Trace
@@ -70,8 +72,7 @@ task validate   # fmt + check + lint + test
 
 **Rule: Provide info NOT obvious from code.**
 
-❌ Paraphrase: `// Check if external`
-✓ Explain: `// Workaround git bug < 2.35: missing 'bare' field`
+❌ Paraphrase: `// Check if external` ✓ Explain: `// Workaround git bug < 2.35: missing 'bare' field`
 
 **When to comment:** Workarounds, non-obvious decisions, TODOs/FIXMEs, complex algorithms, trade-offs.
 
@@ -82,6 +83,7 @@ task validate   # fmt + check + lint + test
 **NEVER `as unknown as T`.**
 
 **Use Zod 4 Mini:**
+
 ```typescript
 import { z } from "zod/mini";
 const schema = z.object({ id: z.string(), status: z.enum(["active", "done"]) });

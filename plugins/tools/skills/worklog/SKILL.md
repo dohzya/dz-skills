@@ -171,8 +171,7 @@ wl claude <id> -c      # pass Claude args after taskId
 wl run <id> claude -c --model opus
 ```
 
-`WORKLOG_TASK_ID` is also picked up automatically by `trace`, `checkpoint`, `done`, etc.
-when running inside `wl run` — no need to specify `<id>` explicitly.
+`WORKLOG_TASK_ID` is also picked up automatically by `trace`, `checkpoint`, `done`, etc. when running inside `wl run` — no need to specify `<id>` explicitly.
 
 ## Common Mistakes to Avoid
 

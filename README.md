@@ -113,11 +113,13 @@ See [packages/tools/README.md](packages/tools/README.md) for complete API docume
 ## Development
 
 **First-time setup:**
+
 ```bash
 bash setup.sh  # Installs mise and Deno
 ```
 
 **Commands:**
+
 ```bash
 task test      # Run tests
 task fmt       # Format code

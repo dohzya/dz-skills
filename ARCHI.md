@@ -10,13 +10,13 @@ Hexagonal architecture (Ports & Adapters). Dependencies point inward only.
 Entities → Ports → Use Cases → Adapters → CLI
 ```
 
-| Layer | May import from |
-|---|---|
-| Entities | Nothing |
-| Ports | Entities only |
-| Use Cases | Entities + Ports |
-| Adapters | Entities + Ports |
-| CLI | All layers (DI wiring only) |
+| Layer     | May import from             |
+| --------- | --------------------------- |
+| Entities  | Nothing                     |
+| Ports     | Entities only               |
+| Use Cases | Entities + Ports            |
+| Adapters  | Entities + Ports            |
+| CLI       | All layers (DI wiring only) |
 
 - ❌ Use cases must never import from `adapters/`
 - ❌ Adapters must never import from other adapters' use cases
@@ -39,27 +39,35 @@ Entities → Ports → Use Cases → Adapters → CLI
 ## Forbidden patterns
 
 ❌ Business logic in `cli.ts` or anywhere in `adapters/`
+
 ```typescript
 // WRONG — logic in a command handler
 if (task.status === "started") { ... }
 ```
 
 ❌ Adapter import inside a use case
+
 ```typescript
 // WRONG — use case imports an adapter
 import { MarkdownSurgeonAdapter } from "../../adapters/markdown/surgeon-adapter.ts";
 ```
 
 ❌ Mutable entity properties
+
 ```typescript
 // WRONG
-interface Task { status: string }
+interface Task {
+  status: string;
+}
 
 // CORRECT
-interface Task { readonly status: string }
+interface Task {
+  readonly status: string;
+}
 ```
 
 ❌ `I` prefix on interfaces
+
 ```typescript
 // WRONG
 interface IFileSystem { ... }
@@ -69,6 +77,7 @@ interface FileSystem { ... }
 ```
 
 ❌ Cross-adapter imports between worklog and markdown-surgeon
+
 ```typescript
 // WRONG — worklog use case imports markdown-surgeon adapter directly
 import { YamlParserService } from "../../markdown-surgeon/adapters/services/yaml.ts";
