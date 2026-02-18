@@ -2,7 +2,6 @@
   "name": "tools",
   "description": "Markdown manipulation and productivity skills for Claude Code",
   "version": "0.7.0",
-  "agents": "./agents/",
   "skills": [
     "./skills/worklog",
     "./skills/markdown-surgeon",
