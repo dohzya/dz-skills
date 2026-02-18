@@ -240,7 +240,7 @@ function initializeUseCases(): void {
     INDEX_FILE,
     TASKS_DIR,
   );
-  scopeRepo = new JsonScopeRepository(fs, join(WORKLOG_DIR, "scope.json"));
+  scopeRepo = new JsonScopeRepository(fs, WORKLOG_DIR);
 
   // Warn function for use cases
   const warn = (msg: string) => console.error(msg);
@@ -2580,6 +2580,7 @@ async function cmdDone(
   return await updateStatusUseCase.execute({
     taskId,
     targetStatus: "done",
+    force,
   });
 }
 
