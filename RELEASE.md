@@ -50,8 +50,8 @@ JSR package: @dohzya/tools@0.6.1
 ## Quick Reference
 
 ```bash
-# 0. ALWAYS validate first
-task validate  # ✅ Must be green
+# 0. ALWAYS validate first (code + plugin manifests)
+task validate  # ✅ Must be green (validate:code + validate:plugin)
 
 # 1. Prepare version bump (updates deno.json + tool cli.ts + skill imports only)
 task bump-prepare TOOL=wl TOOL_VERSION=0.6.1 JSR_VERSION=0.6.2
@@ -102,7 +102,7 @@ git tag v0.6.2 && git push origin v0.6.2
 
 | Step | Validation                | Command                                                          | Why                                                      |
 | ---- | ------------------------- | ---------------------------------------------------------------- | -------------------------------------------------------- |
-| 0    | `task validate` ✅        | Must pass                                                        | Ensure clean starting state                              |
+| 0    | `task validate` ✅        | Must pass (runs validate:code + validate:plugin)                 | Ensure clean starting state + plugin manifests           |
 | 1    | N/A                       | `task bump-prepare TOOL=wl TOOL_VERSION=X.Y.Z JSR_VERSION=X.Y.Z` | Updates deno.json, cli.ts, skill imports ONLY            |
 | 1b   | `task validate` ✅        | Must pass                                                        | Verify bump didn't break anything                        |
 | 2    | N/A                       | `git commit` (no push!)                                          | Commit version changes locally                           |

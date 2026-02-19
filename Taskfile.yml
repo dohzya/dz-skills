@@ -37,10 +37,27 @@ tasks:
       - cd packages/tools && deno task lint
 
   validate:
-    desc: "Run all checks (fmt, lint, check, test)"
-    dir: packages/tools
+    desc: "Run all checks (code + plugin manifests)"
     cmds:
-      - deno task validate
+      - task: validate:code
+      - task: validate:plugin
+
+  validate:code:
+    desc: "Run code checks (fmt, lint, check, test)"
+    cmds:
+      - deno fmt --check .
+      - cd packages/tools && deno task validate
+
+  validate:plugin:
+    desc: "Validate plugin manifests (requires claude CLI)"
+    cmds:
+      - claude plugin validate .
+      - claude plugin validate ./plugins/tools
+
+  validate:ci:
+    desc: "Run CI checks (code only)"
+    cmds:
+      - task: validate:code
 
   publish:
     desc: "Publish package to JSR"
