@@ -5,6 +5,7 @@
  */
 
 import { Command } from "@cliffy/command";
+import { CompletionsCommand } from "@cliffy/command/completions";
 import { Blake3HashService } from "./adapters/services/blake3-hash.ts";
 import { YamlParserService } from "./adapters/services/yaml-parser.ts";
 import { createCommands } from "./adapters/cli/commands.ts";
@@ -45,7 +46,8 @@ const cli = new Command()
   .command("search", commands.searchCmd)
   .command("concat", commands.concatCmd)
   .command("meta", commands.metaCmd)
-  .command("create", commands.createCmd);
+  .command("create", commands.createCmd)
+  .command("completions", new CompletionsCommand());
 
 export async function main(args: string[]): Promise<void> {
   await cli.parse(args);

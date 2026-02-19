@@ -104,6 +104,40 @@ wl logs
 
 See the [worklog skill](plugins/tools/skills/worklog/SKILL.md) for complete command reference.
 
+## Shell Completions
+
+Both `wl` and `md` support tab completion for bash, zsh, and fish.
+
+### Fish
+
+Add to `~/.config/fish/config.fish` (or a file in `~/.config/fish/conf.d/`):
+
+```fish
+# Tab completions for wl and md
+wl completions fish | source
+md completions fish | source
+```
+
+### Bash
+
+Add to `~/.bashrc`:
+
+```bash
+# Tab completions for wl and md
+eval "$(wl completions bash)"
+eval "$(md completions bash)"
+```
+
+### Zsh
+
+Add to `~/.zshrc`:
+
+```zsh
+# Tab completions for wl and md
+eval "$(wl completions zsh)"
+eval "$(md completions zsh)"
+```
+
 ## Updating
 
 ### Homebrew

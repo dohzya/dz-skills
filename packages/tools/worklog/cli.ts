@@ -1,4 +1,5 @@
 import { Command } from "@cliffy/command";
+import { CompletionsCommand } from "@cliffy/command/completions";
 import {
   type AddOutput,
   type AssignOutput,
@@ -5032,7 +5033,8 @@ const cli = new Command()
   .command("summary", summaryCmd)
   .command("import", importCmd)
   .command("todo", todoCmd)
-  .command("scopes", scopesCmd);
+  .command("scopes", scopesCmd)
+  .command("completions", new CompletionsCommand());
 
 export async function main(args: string[]): Promise<void> {
   // Show help when no arguments provided
