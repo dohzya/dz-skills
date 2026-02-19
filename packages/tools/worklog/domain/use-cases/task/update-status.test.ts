@@ -23,7 +23,7 @@ function createMockIndexRepo(
       return { version: 2, tasks: state.tasks };
     },
     async save(index: Index): Promise<void> {
-      state.tasks = { ...index.tasks } as Record<string, IndexEntry>;
+      state.tasks = { ...index.tasks };
     },
     async addEntry(taskId: string, entry: IndexEntry): Promise<void> {
       state.tasks[taskId] = entry;
@@ -80,6 +80,7 @@ function createMockMarkdownService(): MarkdownService & {
     lastCheckpoints,
     async parseTaskFile() {
       return {
+        // deno-lint-ignore dz-tools/no-type-assertion
         meta: {} as any,
         entries: [],
         checkpoints: [],
@@ -553,15 +554,12 @@ Deno.test("UpdateStatusUseCase - toCancelled with reason", async () => {
   // Verify frontmatter includes cancellation reason as metadata
   assertEquals(markdownService.lastFrontmatterUpdates.length, 1);
   assertEquals(markdownService.lastFrontmatterUpdates[0].status, "cancelled");
-  assertEquals(
-    (markdownService.lastFrontmatterUpdates[0].metadata as Record<
-      string,
-      string
-    >)
-      .cancellation_reason,
-    "No longer needed",
-  );
-
+  // deno-lint-ignore dz-tools/no-type-assertion
+  const metaMap = markdownService.lastFrontmatterUpdates[0].metadata as Record<
+    string,
+    string
+  >;
+  assertEquals(metaMap.cancellation_reason, "No longer needed");
   // Verify index was updated
   assertEquals(indexRepo.index.tasks[TASK_ID].status, "cancelled");
   assertEquals(indexRepo.index.tasks[TASK_ID].cancelled_at, FIXED_TIMESTAMP);

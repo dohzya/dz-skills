@@ -8,8 +8,8 @@ import { getShortId } from "../../entities/task-helpers.ts";
 import type { IndexEntry } from "../../entities/index.ts";
 import type { ScopeRepository } from "../../ports/scope-repository.ts";
 import type { FileSystem } from "../../ports/filesystem.ts";
-import type { ScopeConfigParent } from "../../entities/scope.ts";
 import type { Entry } from "../../entities/entry.ts";
+import { ExplicitCast } from "../../../../explicit-cast.ts";
 
 export interface ShowTaskInput {
   readonly taskId: string;
@@ -56,7 +56,7 @@ export class ShowTaskUseCase {
 
     // Get effective tags
     const effectiveTags = await this.getEffectiveTags(
-      meta.tags as string[] | undefined,
+      meta.tags,
       input.worklogDir,
       input.gitRoot,
     );
@@ -96,7 +96,14 @@ export class ShowTaskUseCase {
       for (const id of matches.slice(0, 10)) {
         const shortId = getShortId(
           {
-            tasks: Object.fromEntries(allIds.map((i) => [i, {} as IndexEntry])),
+            tasks: Object.fromEntries(
+              allIds.map((
+                i,
+              ) => [
+                i,
+                ExplicitCast.from<object>({}).dangerousCast<IndexEntry>(),
+              ]),
+            ),
           },
           id,
         );
@@ -131,7 +138,7 @@ export class ShowTaskUseCase {
   }
 
   private async getEffectiveTags(
-    taskTags: string[] | undefined,
+    taskTags: readonly string[] | undefined,
     scopePath: string,
     gitRoot: string | null,
   ): Promise<string[]> {
@@ -149,7 +156,7 @@ export class ShowTaskUseCase {
         const resolvedParent = this.resolvePath(parentDir, scopeConfig.parent);
         const parentConfig = await this.scopeRepo.loadConfig(resolvedParent);
         if (parentConfig && "children" in parentConfig) {
-          const myEntry = (parentConfig as ScopeConfigParent).children.find(
+          const myEntry = parentConfig.children.find(
             (c) => {
               const resolvedChildPath = this.resolvePath(
                 resolvedParent,

@@ -75,6 +75,7 @@ class MockYamlService implements YamlService {
     for (const part of parts) {
       if (current === null || current === undefined) return undefined;
       if (typeof current === "object") {
+        // deno-lint-ignore dz-tools/no-type-assertion
         current = (current as Record<string, unknown>)[part];
       } else {
         return undefined;
@@ -98,6 +99,7 @@ class MockYamlService implements YamlService {
       ) {
         current[part] = {};
       }
+      // deno-lint-ignore dz-tools/no-type-assertion
       current = current[part] as Record<string, unknown>;
     }
     current[parts[parts.length - 1]] = value;
@@ -114,6 +116,7 @@ class MockYamlService implements YamlService {
       ) {
         return false;
       }
+      // deno-lint-ignore dz-tools/no-type-assertion
       current = current[part] as Record<string, unknown>;
     }
     const lastPart = parts[parts.length - 1];

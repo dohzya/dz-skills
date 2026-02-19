@@ -18,6 +18,7 @@ import type {
 } from "../../domain/entities/scope.ts";
 import type { FileSystem } from "../../domain/ports/filesystem.ts";
 import type { ScopeRepository } from "../../domain/ports/scope-repository.ts";
+import { ExplicitCast } from "../../../explicit-cast.ts";
 
 // Default worklog directory name
 const DEFAULT_WORKLOG_DIR = ".worklog";
@@ -45,7 +46,9 @@ export class JsonScopeRepository implements ScopeRepository {
 
     try {
       const content = await this.fs.readFile(scopeJsonPath);
-      return JSON.parse(content) as ScopeConfig;
+      return ExplicitCast.fromAny(JSON.parse(content)).dangerousCast<
+        ScopeConfig
+      >();
     } catch {
       return null; // Corrupted file
     }
@@ -74,7 +77,9 @@ export class JsonScopeRepository implements ScopeRepository {
     if (await this.fs.exists(rootScopeJsonPath)) {
       try {
         const content = await this.fs.readFile(rootScopeJsonPath);
-        const config = JSON.parse(content) as ScopeConfig;
+        const config = ExplicitCast.fromAny(JSON.parse(content)).dangerousCast<
+          ScopeConfig
+        >();
         if ("children" in config) {
           for (const child of config.children) {
             idMap.set(child.path, child.id);

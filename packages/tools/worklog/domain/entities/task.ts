@@ -16,7 +16,8 @@ export const TASK_STATUSES = [
 ] as const;
 
 export function isValidTaskStatus(value: string): value is TaskStatus {
-  return TASK_STATUSES.includes(value as TaskStatus);
+  const statuses: readonly string[] = TASK_STATUSES;
+  return statuses.includes(value);
 }
 
 /**

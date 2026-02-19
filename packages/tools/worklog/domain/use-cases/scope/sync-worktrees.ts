@@ -1,10 +1,6 @@
 // SyncWorktreesUseCase - Sync git worktrees with scopes
 
-import type {
-  ScopeConfigChild,
-  ScopeConfigParent,
-  ScopeEntry,
-} from "../../entities/scope.ts";
+import type { ScopeEntry } from "../../entities/scope.ts";
 import { WtError } from "../../entities/errors.ts";
 import type { ScopeRepository } from "../../ports/scope-repository.ts";
 import type { FileSystem } from "../../ports/filesystem.ts";
@@ -122,7 +118,7 @@ export class SyncWorktreesUseCase {
           const relPath = this.calculateRelativePath(worktree.path, gitRoot);
           await this.scopeRepo.saveConfig(worklogPath, {
             parent: relPath,
-          } as ScopeConfigChild);
+          });
 
           children.push({
             path: effectivePath,
@@ -137,7 +133,7 @@ export class SyncWorktreesUseCase {
     if (!input.dryRun && (added.length > 0 || removed.length > 0)) {
       await this.scopeRepo.saveConfig(rootWorklogPath, {
         children,
-      } as ScopeConfigParent);
+      });
     }
 
     return { added, removed, warnings };

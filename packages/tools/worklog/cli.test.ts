@@ -163,6 +163,7 @@ Deno.test("worklog trace - rejects invalid timestamp format", async () => {
   let errorOutput = "";
 
   // Mock Deno.exit to throw and prevent actual exit
+  // deno-lint-ignore dz-tools/no-type-assertion
   Deno.exit = ((code: number) => {
     exitCode = code;
     throw new Error("EXIT"); // Throw to stop execution
@@ -440,6 +441,7 @@ Deno.test("worklog trace - rejects completed task without --force", async () => 
   let exitCode = 0;
   let errorOutput = "";
 
+  // deno-lint-ignore dz-tools/no-type-assertion
   Deno.exit = ((code: number) => {
     exitCode = code;
     throw new Error("EXIT");
@@ -544,6 +546,7 @@ Deno.test("worklog checkpoint - rejects if no uncheckpointed entries", async () 
   let exitCode = 0;
   let errorOutput = "";
 
+  // deno-lint-ignore dz-tools/no-type-assertion
   Deno.exit = ((code: number) => {
     exitCode = code;
     throw new Error("EXIT");
@@ -1356,6 +1359,7 @@ Deno.test("worklog - handles missing index.json", async () => {
   let exitCode = 0;
   let errorOutput = "";
 
+  // deno-lint-ignore dz-tools/no-type-assertion
   Deno.exit = ((code: number) => {
     exitCode = code;
     throw new Error("EXIT");
@@ -1438,6 +1442,7 @@ Deno.test("worklog - handles malformed task file", async () => {
   let exitCode = 0;
   let errorOutput = "";
 
+  // deno-lint-ignore dz-tools/no-type-assertion
   Deno.exit = ((code: number) => {
     exitCode = code;
     throw new Error("EXIT");
@@ -1627,6 +1632,7 @@ Deno.test("worklog task create - rejects invalid timestamp format", async () => 
 
   try {
     Deno.chdir(tempDir);
+    // deno-lint-ignore dz-tools/no-type-assertion
     Deno.exit = ((code: number) => {
       _exitCode = code;
     }) as typeof Deno.exit;
@@ -2111,6 +2117,7 @@ Deno.test("create - rejects both --ready and --started flags", async () => {
 
   try {
     Deno.chdir(tempDir);
+    // deno-lint-ignore dz-tools/no-type-assertion
     Deno.exit = ((code: number) => {
       exitCode = code;
       throw new Error("EXIT");
@@ -2200,6 +2207,7 @@ Deno.test("ready - rejects done tasks", async () => {
   let exitCode = 0;
   try {
     Deno.chdir(tempDir);
+    // deno-lint-ignore dz-tools/no-type-assertion
     Deno.exit = ((code: number) => {
       exitCode = code;
       throw new Error("EXIT");
@@ -2234,6 +2242,7 @@ Deno.test("ready - rejects cancelled tasks", async () => {
   let exitCode = 0;
   try {
     Deno.chdir(tempDir);
+    // deno-lint-ignore dz-tools/no-type-assertion
     Deno.exit = ((code: number) => {
       exitCode = code;
       throw new Error("EXIT");
@@ -2344,6 +2353,7 @@ Deno.test("start - rejects cancelled tasks", async () => {
   let exitCode = 0;
   try {
     Deno.chdir(tempDir);
+    // deno-lint-ignore dz-tools/no-type-assertion
     Deno.exit = ((code: number) => {
       exitCode = code;
       throw new Error("EXIT");
@@ -2451,6 +2461,7 @@ Deno.test("update - rejects when no options provided", async () => {
   let errorOutput = "";
   try {
     Deno.chdir(tempDir);
+    // deno-lint-ignore dz-tools/no-type-assertion
     Deno.exit = ((code: number) => {
       exitCode = code;
       throw new Error("EXIT");
@@ -2673,6 +2684,7 @@ Deno.test("trace - throws error when task is done (without --force)", async () =
   let exitCode = 0;
   try {
     Deno.chdir(tempDir);
+    // deno-lint-ignore dz-tools/no-type-assertion
     Deno.exit = ((code: number) => {
       exitCode = code;
       throw new Error("EXIT");
@@ -2768,6 +2780,7 @@ Deno.test("done - rejects no args when uncheckpointed entries exist", async () =
   let errorOutput = "";
   try {
     Deno.chdir(tempDir);
+    // deno-lint-ignore dz-tools/no-type-assertion
     Deno.exit = ((code: number) => {
       exitCode = code;
       throw new Error("EXIT");
@@ -3563,12 +3576,12 @@ Deno.test("--worklog-dir + --scope conflict - throws error", async () => {
   const originalCwd = Deno.cwd();
   const originalExit = Deno.exit;
   try {
-    // deno-lint-ignore no-explicit-any
-    (Deno as any).exit = (_code: number) => {};
+    Object.assign(Deno, { exit: (_code: number) => {} });
     let caught: Error | undefined;
     try {
       await main(["--worklog-dir", "/tmp", "list", "--scope", "foo", "--json"]);
     } catch (e) {
+      // deno-lint-ignore dz-tools/no-type-assertion
       caught = e as Error;
     }
     assert(caught instanceof WtError);
@@ -3578,8 +3591,7 @@ Deno.test("--worklog-dir + --scope conflict - throws error", async () => {
       "Cannot use --scope with --worklog-dir",
     );
   } finally {
-    // deno-lint-ignore no-explicit-any
-    (Deno as any).exit = originalExit;
+    Object.assign(Deno, { exit: originalExit });
     Deno.chdir(originalCwd);
   }
 });
@@ -3968,6 +3980,7 @@ Deno.test("cross-scope - nonexistent task fails with clear error", async () => {
   let exitCode = 0;
   let errorOutput = "";
 
+  // deno-lint-ignore dz-tools/no-type-assertion
   Deno.exit = ((code: number) => {
     exitCode = code;
     throw new Error("EXIT");

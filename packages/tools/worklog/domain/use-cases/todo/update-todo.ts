@@ -3,6 +3,7 @@
 import type { StatusOutput } from "../../entities/outputs.ts";
 import type { Todo } from "../../entities/todo.ts";
 import type { TodoStatus } from "../../entities/todo.ts";
+import { ExplicitCast } from "../../../../explicit-cast.ts";
 import { WtError } from "../../entities/errors.ts";
 import type { IndexRepository } from "../../ports/index-repository.ts";
 import type { TaskRepository } from "../../ports/task-repository.ts";
@@ -72,7 +73,11 @@ export class UpdateTodoUseCase {
 
         // Apply updates
         if (input.updates.status) {
-          statusChar = statusMap[input.updates.status as TodoStatus] ||
+          statusChar = statusMap[
+            ExplicitCast.from<string>(input.updates.status).downcast<
+              TodoStatus
+            >()
+          ] ||
             statusChar;
         }
 

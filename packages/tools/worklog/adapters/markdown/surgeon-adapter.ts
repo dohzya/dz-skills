@@ -28,6 +28,7 @@ import type {
   MarkdownService,
   ParsedTaskFile,
 } from "../../domain/ports/markdown-service.ts";
+import { ExplicitCast } from "../../../explicit-cast.ts";
 
 import type {
   Document,
@@ -103,7 +104,8 @@ export class MarkdownSurgeonAdapter implements MarkdownService {
 
     // Parse frontmatter into TaskMeta (parser returns {} for corrupted YAML)
     const rawMeta = this.yamlService.parse(yamlContent);
-    const meta = rawMeta as unknown as TaskMeta;
+    const meta = ExplicitCast.from<Record<string, unknown>>(rawMeta)
+      .dangerousCast<TaskMeta>();
 
     const entriesId = await this.getEntriesId();
     const checkpointsId = await this.getCheckpointsId();

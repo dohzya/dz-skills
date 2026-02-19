@@ -9,6 +9,7 @@ import type { ScopeRepository } from "../../ports/scope-repository.ts";
 import type { FileSystem } from "../../ports/filesystem.ts";
 import type { GitService } from "../../ports/git-service.ts";
 import type { MarkdownService } from "../../ports/markdown-service.ts";
+import { ExplicitCast } from "../../../../explicit-cast.ts";
 
 export interface AssignScopeInput {
   readonly targetScopeId: string;
@@ -80,7 +81,8 @@ export class AssignScopeUseCase {
         // Load target index
         const targetIndexPath = `${targetWorklog}/index.json`;
         const targetIndexContent = await this.fs.readFile(targetIndexPath);
-        const targetIndex = JSON.parse(targetIndexContent) as Index;
+        const targetIndex = ExplicitCast.fromAny(JSON.parse(targetIndexContent))
+          .dangerousCast<Index>();
 
         // Check UID conflict
         let existingTaskId: string | undefined;
@@ -163,7 +165,7 @@ export class AssignScopeUseCase {
   private async loadIndex(worklogPath: string): Promise<Index> {
     const indexPath = `${worklogPath}/index.json`;
     const content = await this.fs.readFile(indexPath);
-    return JSON.parse(content) as Index;
+    return ExplicitCast.fromAny(JSON.parse(content)).dangerousCast<Index>();
   }
 
   private async findTaskInScopes(
@@ -178,7 +180,9 @@ export class AssignScopeUseCase {
       if (await this.fs.exists(indexPath)) {
         try {
           const content = await this.fs.readFile(indexPath);
-          const index = JSON.parse(content) as Index;
+          const index = ExplicitCast.fromAny(JSON.parse(content)).dangerousCast<
+            Index
+          >();
           for (const id of Object.keys(index.tasks)) {
             allTasks.push({ scope: scope.absolutePath, taskId: id });
           }

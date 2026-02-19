@@ -106,7 +106,8 @@ export class ManageFrontmatterUseCase {
     // But if it looks like a simple string, keep it as string
     if (
       typeof parsedValue === "object" &&
-      Object.keys(parsedValue as object).length === 0
+      parsedValue !== null &&
+      Object.keys(parsedValue).length === 0
     ) {
       parsedValue = value;
     }

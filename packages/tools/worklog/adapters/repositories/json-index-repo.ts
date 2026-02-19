@@ -26,6 +26,7 @@ import { WtError } from "../../domain/entities/errors.ts";
 import type { FileSystem } from "../../domain/ports/filesystem.ts";
 import type { IndexRepository } from "../../domain/ports/index-repository.ts";
 import type { MarkdownService } from "../../domain/ports/markdown-service.ts";
+import { ExplicitCast } from "../../../explicit-cast.ts";
 
 export class JsonIndexRepository implements IndexRepository {
   constructor(
@@ -44,14 +45,18 @@ export class JsonIndexRepository implements IndexRepository {
     }
 
     const content = await this.fs.readFile(this.indexPath);
-    const index = JSON.parse(content) as Index;
+    const index = ExplicitCast.fromAny(JSON.parse(content)).dangerousCast<
+      Index
+    >();
 
     // Run migration if needed
     if (!index.version || index.version < 2) {
       await this.migrateToV2();
       // Reload index after migration
       const newContent = await this.fs.readFile(this.indexPath);
-      return JSON.parse(newContent) as Index;
+      return ExplicitCast.fromAny(JSON.parse(newContent)).dangerousCast<
+        Index
+      >();
     }
 
     return index;
@@ -63,7 +68,7 @@ export class JsonIndexRepository implements IndexRepository {
 
   async addEntry(taskId: string, entry: IndexEntry): Promise<void> {
     const index = await this.load();
-    const mutableTasks = { ...index.tasks } as Record<string, IndexEntry>;
+    const mutableTasks = { ...index.tasks };
     mutableTasks[taskId] = entry;
     await this.save({ ...index, tasks: mutableTasks });
   }
@@ -77,14 +82,14 @@ export class JsonIndexRepository implements IndexRepository {
     if (!existing) {
       throw new WtError("task_not_found", `Task not found in index: ${taskId}`);
     }
-    const mutableTasks = { ...index.tasks } as Record<string, IndexEntry>;
+    const mutableTasks = { ...index.tasks };
     mutableTasks[taskId] = { ...existing, ...updates };
     await this.save({ ...index, tasks: mutableTasks });
   }
 
   async removeEntry(taskId: string): Promise<void> {
     const index = await this.load();
-    const mutableTasks = { ...index.tasks } as Record<string, IndexEntry>;
+    const mutableTasks = { ...index.tasks };
     delete mutableTasks[taskId];
     await this.save({ ...index, tasks: mutableTasks });
   }
@@ -101,10 +106,13 @@ export class JsonIndexRepository implements IndexRepository {
   private async migrateToV2(): Promise<void> {
     // Load index directly without triggering migration
     const content = await this.fs.readFile(this.indexPath);
-    const index = JSON.parse(content) as Record<string, unknown> & {
+    type RawIndex = Record<string, unknown> & {
       version?: number;
       tasks: Record<string, Record<string, unknown>>;
     };
+    const index = ExplicitCast.fromAny(JSON.parse(content)).dangerousCast<
+      RawIndex
+    >();
 
     // Check if migration is needed
     if (index.version === 2) {
@@ -128,7 +136,7 @@ export class JsonIndexRepository implements IndexRepository {
 
       const taskContent = await this.fs.readFile(taskPath);
       const parsed = await this.markdownService.parseTaskFile(taskContent);
-      const frontmatter = { ...parsed.meta } as Record<string, unknown>;
+      const frontmatter: Record<string, unknown> = { ...parsed.meta };
 
       // 1. Convert active status to created (NOT started)
       if (frontmatter.status === "active") {

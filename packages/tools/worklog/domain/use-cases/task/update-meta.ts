@@ -1,12 +1,9 @@
 // UpdateMetaUseCase - Set/get task metadata
 
 import { WtError } from "../../entities/errors.ts";
+import { ExplicitCast } from "../../../../explicit-cast.ts";
 import type { IndexEntry } from "../../entities/index.ts";
-import {
-  isValidTaskStatus,
-  TASK_STATUSES,
-  type TaskStatus,
-} from "../../entities/task.ts";
+import { isValidTaskStatus, TASK_STATUSES } from "../../entities/task.ts";
 import type { IndexRepository } from "../../ports/index-repository.ts";
 import type { TaskRepository } from "../../ports/task-repository.ts";
 import type { MarkdownService } from "../../ports/markdown-service.ts";
@@ -68,7 +65,7 @@ export class UpdateMetaUseCase {
         };
 
         // Update timestamp fields based on status
-        const status = input.value as TaskStatus;
+        const status = input.value;
         if (status === "done" && !taskData.meta.done_at) {
           statusUpdates.done_at = now;
         } else if (status === "cancelled" && !taskData.meta.cancelled_at) {
@@ -103,7 +100,9 @@ export class UpdateMetaUseCase {
         if (["created", "ready", "started"].includes(status)) {
           indexUpdates.done_at = undefined;
         } else if (status === "done" && statusUpdates.done_at) {
-          indexUpdates.done_at = statusUpdates.done_at as string;
+          indexUpdates.done_at = ExplicitCast.from<unknown>(
+            statusUpdates.done_at,
+          ).dangerousCast<string>();
         }
         await this.indexRepo.updateEntry(taskId, indexUpdates);
 

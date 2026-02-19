@@ -10,6 +10,7 @@ import { matchesTagPattern } from "../../entities/task-helpers.ts";
 import type { IndexRepository } from "../../ports/index-repository.ts";
 import type { ScopeRepository } from "../../ports/scope-repository.ts";
 import type { FileSystem } from "../../ports/filesystem.ts";
+import { ExplicitCast } from "../../../../explicit-cast.ts";
 
 export interface ListTasksInput {
   readonly showAll: boolean;
@@ -35,8 +36,10 @@ export class ListTasksUseCase {
   async execute(input: ListTasksInput): Promise<ListOutput> {
     const defaultStatuses: TaskStatus[] = ["created", "ready", "started"];
     const allowedStatuses = input.statusFilters ?? defaultStatuses;
-    const matchStatus = (status: string) =>
-      input.showAll || allowedStatuses.includes(status as TaskStatus);
+    const matchStatus = (status: string) => {
+      const statuses: readonly string[] = allowedStatuses;
+      return input.showAll || statuses.includes(status);
+    };
 
     const tasks: ListTaskItem[] = [];
 
@@ -64,7 +67,9 @@ export class ListTasksUseCase {
         if (!(await this.fs.exists(indexPath))) continue;
 
         const content = await this.fs.readFile(indexPath);
-        const index = JSON.parse(content) as Index;
+        const index = ExplicitCast.fromAny(JSON.parse(content)).dangerousCast<
+          Index
+        >();
         const scopeId = await this.getScopeId(
           scope.absolutePath,
           input.gitRoot,
@@ -109,7 +114,9 @@ export class ListTasksUseCase {
       }
 
       const content = await this.fs.readFile(indexPath);
-      const index = JSON.parse(content) as Index;
+      const index = ExplicitCast.fromAny(JSON.parse(content)).dangerousCast<
+        Index
+      >();
 
       const scopeTasks = Object.entries(index.tasks)
         .filter(([_, t]) => matchStatus(t.status))
@@ -149,7 +156,7 @@ export class ListTasksUseCase {
         );
       }
       const content = await this.fs.readFile(indexPath);
-      index = JSON.parse(content) as Index;
+      index = ExplicitCast.fromAny(JSON.parse(content)).dangerousCast<Index>();
     } else {
       index = await this.indexRepo.load();
     }
@@ -216,7 +223,9 @@ export class ListTasksUseCase {
 
       if (await this.fs.exists(indexPath)) {
         const content = await this.fs.readFile(indexPath);
-        const index = JSON.parse(content) as Index;
+        const index = ExplicitCast.fromAny(JSON.parse(content)).dangerousCast<
+          Index
+        >();
 
         const scopeTasks = Object.entries(index.tasks)
           .filter(([_, t]) => matchStatus(t.status))
@@ -266,7 +275,9 @@ export class ListTasksUseCase {
     const currentIndexPath = `${currentScope}/index.json`;
     if (await this.fs.exists(currentIndexPath)) {
       const content = await this.fs.readFile(currentIndexPath);
-      const index = JSON.parse(content) as Index;
+      const index = ExplicitCast.fromAny(JSON.parse(content)).dangerousCast<
+        Index
+      >();
 
       const currentTasks = Object.entries(index.tasks)
         .filter(([_, t]) => matchStatus(t.status))
@@ -322,7 +333,8 @@ export class ListTasksUseCase {
     if (await this.fs.exists(scopeConfigPath)) {
       try {
         const configContent = await this.fs.readFile(scopeConfigPath);
-        const config = JSON.parse(configContent) as ScopeConfig;
+        const config = ExplicitCast.fromAny(JSON.parse(configContent))
+          .dangerousCast<ScopeConfig>();
 
         if ("children" in config) {
           for (const child of config.children) {
@@ -334,7 +346,8 @@ export class ListTasksUseCase {
             if (!(await this.fs.exists(childIndexPath))) continue;
 
             const content = await this.fs.readFile(childIndexPath);
-            const index = JSON.parse(content) as Index;
+            const index = ExplicitCast.fromAny(JSON.parse(content))
+              .dangerousCast<Index>();
 
             const childTasks = Object.entries(index.tasks)
               .filter(([_, t]) => matchStatus(t.status))
@@ -388,7 +401,9 @@ export class ListTasksUseCase {
       if (!(await this.fs.exists(indexPath))) continue;
 
       const content = await this.fs.readFile(indexPath);
-      const index = JSON.parse(content) as Index;
+      const index = ExplicitCast.fromAny(JSON.parse(content)).dangerousCast<
+        Index
+      >();
       for (const [id, task] of Object.entries(index.tasks)) {
         const tags = task.tags ?? [];
         if (tags.some((tag) => matchesTagPattern(pattern, tag))) {
@@ -453,7 +468,8 @@ export class ListTasksUseCase {
     if (await this.fs.exists(rootConfigPath)) {
       try {
         const content = await this.fs.readFile(rootConfigPath);
-        const rootConfig = JSON.parse(content) as ScopeConfig;
+        const rootConfig = ExplicitCast.fromAny(JSON.parse(content))
+          .dangerousCast<ScopeConfig>();
         if ("children" in rootConfig) {
           const child = rootConfig.children.find(
             (c) => c.path === relativePath,
@@ -487,7 +503,9 @@ export class ListTasksUseCase {
 
     try {
       const content = await this.fs.readFile(scopeJsonPath);
-      const config = JSON.parse(content) as ScopeConfig;
+      const config = ExplicitCast.fromAny(JSON.parse(content)).dangerousCast<
+        ScopeConfig
+      >();
       return "parent" in config;
     } catch {
       return false;
@@ -497,7 +515,9 @@ export class ListTasksUseCase {
   private async getParentScope(childPath: string): Promise<string> {
     const scopeJsonPath = `${childPath}/scope.json`;
     const content = await this.fs.readFile(scopeJsonPath);
-    const config = JSON.parse(content) as { parent: string };
+    const config = ExplicitCast.fromAny(JSON.parse(content)).dangerousCast<
+      { parent: string }
+    >();
     // Resolve relative parent path
     const childDir = childPath.split("/").slice(0, -1).join("/");
     return this.resolveRelativePath(childDir, config.parent);

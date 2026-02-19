@@ -1,7 +1,7 @@
 // AddScopeUseCase - Add a scope (cmdScopesAdd / cmdScopesAddParent)
 
 import type { StatusOutput } from "../../entities/outputs.ts";
-import type { ScopeConfigParent, ScopeEntry } from "../../entities/scope.ts";
+import type { ScopeEntry } from "../../entities/scope.ts";
 import { WtError } from "../../entities/errors.ts";
 import type { ScopeRepository } from "../../ports/scope-repository.ts";
 import type { FileSystem } from "../../ports/filesystem.ts";
@@ -155,7 +155,7 @@ export class AddScopeUseCase {
 
     await this.scopeRepo.saveConfig(rootWorklogPath, {
       children,
-    } as ScopeConfigParent);
+    });
 
     return { status: "scope_created" };
   }

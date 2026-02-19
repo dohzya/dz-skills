@@ -9,6 +9,7 @@ import type { IndexRepository } from "../../ports/index-repository.ts";
 import type { TaskRepository } from "../../ports/task-repository.ts";
 import type { FileSystem } from "../../ports/filesystem.ts";
 import type { MarkdownService } from "../../ports/markdown-service.ts";
+import { ExplicitCast } from "../../../../explicit-cast.ts";
 
 export interface ImportTasksInput {
   readonly sourcePath: string;
@@ -33,7 +34,8 @@ export class ImportTasksUseCase {
     }
 
     const sourceIndexContent = await this.fs.readFile(sourceIndexPath);
-    const sourceIndex = JSON.parse(sourceIndexContent) as Index;
+    const sourceIndex = ExplicitCast.fromAny(JSON.parse(sourceIndexContent))
+      .dangerousCast<Index>();
     const destIndex = await this.indexRepo.load();
 
     const results: ImportTaskResult[] = [];

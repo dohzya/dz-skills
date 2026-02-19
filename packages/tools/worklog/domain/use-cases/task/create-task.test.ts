@@ -19,7 +19,7 @@ function createMockIndexRepo(
       return { version: 2, tasks: state.tasks };
     },
     async save(index: Index): Promise<void> {
-      state.tasks = { ...index.tasks } as Record<string, IndexEntry>;
+      state.tasks = { ...index.tasks };
     },
     async addEntry(taskId: string, entry: IndexEntry): Promise<void> {
       state.tasks[taskId] = entry;
@@ -69,6 +69,7 @@ function createMockMarkdownService(): MarkdownService {
   return {
     async parseTaskFile() {
       return {
+        // deno-lint-ignore dz-tools/no-type-assertion
         meta: {} as any,
         entries: [],
         checkpoints: [],

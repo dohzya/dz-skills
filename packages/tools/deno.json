@@ -33,5 +33,9 @@
   },
   "fmt": {
     "proseWrap": "never"
+  },
+  "lint": {
+    "plugins": ["./lint-plugin.ts"],
+    "exclude": ["explicit-cast.ts", "lint-plugin.ts"]
   }
 }

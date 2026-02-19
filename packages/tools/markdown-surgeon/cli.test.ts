@@ -896,6 +896,7 @@ Deno.test("md - error on file not found", async () => {
   let exitCode = 0;
   let errorOutput = "";
 
+  // deno-lint-ignore dz-tools/no-type-assertion
   Deno.exit = ((code: number) => {
     exitCode = code;
     throw new Error("EXIT");
@@ -925,6 +926,7 @@ Deno.test("md - error on invalid section ID", async () => {
   let exitCode = 0;
   let errorOutput = "";
 
+  // deno-lint-ignore dz-tools/no-type-assertion
   Deno.exit = ((code: number) => {
     exitCode = code;
     throw new Error("EXIT");
@@ -955,6 +957,7 @@ Deno.test("md - error on section not found", async () => {
   let exitCode = 0;
   let errorOutput = "";
 
+  // deno-lint-ignore dz-tools/no-type-assertion
   Deno.exit = ((code: number) => {
     exitCode = code;
     throw new Error("EXIT");

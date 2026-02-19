@@ -4,6 +4,7 @@ import type { StatusOutput } from "../../entities/outputs.ts";
 import { WtError } from "../../entities/errors.ts";
 import type { Index } from "../../entities/index.ts";
 import type { ScopeRepository } from "../../ports/scope-repository.ts";
+import { ExplicitCast } from "../../../../explicit-cast.ts";
 import type { FileSystem } from "../../ports/filesystem.ts";
 import type { GitService } from "../../ports/git-service.ts";
 
@@ -47,7 +48,9 @@ export class DeleteScopeUseCase {
     }
 
     const content = await this.fs.readFile(indexPath);
-    const index = JSON.parse(content) as Index;
+    const index = ExplicitCast.fromAny(JSON.parse(content)).dangerousCast<
+      Index
+    >();
     const taskCount = Object.keys(index.tasks).length;
 
     if (taskCount > 0) {

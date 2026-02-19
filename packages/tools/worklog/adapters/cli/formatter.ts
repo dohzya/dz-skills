@@ -76,7 +76,7 @@ export function formatTodoList(output: TodoListOutput): string {
   const allTodoIds = output.todos.map((t) => t.id);
   const allTaskIds = Array.from(
     new Set(
-      output.todos.map((t) => t.metadata.taskId).filter(Boolean) as string[],
+      output.todos.map((t) => t.metadata.taskId).filter(Boolean),
     ),
   );
 

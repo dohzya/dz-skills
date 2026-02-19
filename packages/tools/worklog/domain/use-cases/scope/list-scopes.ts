@@ -9,6 +9,7 @@ import type { ScopeRepository } from "../../ports/scope-repository.ts";
 import type { FileSystem } from "../../ports/filesystem.ts";
 import type { GitService } from "../../ports/git-service.ts";
 import type { Index } from "../../entities/index.ts";
+import { ExplicitCast } from "../../../../explicit-cast.ts";
 
 export interface ListScopesInput {
   readonly cwd: string;
@@ -59,7 +60,9 @@ export class ListScopesUseCase {
     }
 
     const content = await this.fs.readFile(indexPath);
-    const index = JSON.parse(content) as Index;
+    const index = ExplicitCast.fromAny(JSON.parse(content)).dangerousCast<
+      Index
+    >();
     const taskCount = Object.keys(index.tasks).length;
 
     const relativePath = worklogPath.slice(gitRoot.length + 1);

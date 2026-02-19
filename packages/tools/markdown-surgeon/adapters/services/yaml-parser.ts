@@ -13,6 +13,7 @@
 
 import { parse as parseYaml, stringify as stringifyYaml } from "@std/yaml";
 import type { YamlService } from "../../domain/ports/yaml-service.ts";
+import { ExplicitCast } from "../../../explicit-cast.ts";
 
 export class YamlParserService implements YamlService {
   parse(yaml: string): Record<string, unknown> {
@@ -21,7 +22,9 @@ export class YamlParserService implements YamlService {
     }
     try {
       const result = parseYaml(yaml);
-      return (result as Record<string, unknown>) ?? {};
+      return ExplicitCast.from<unknown>(result).dangerousCast<
+        Record<string, unknown>
+      >() ?? {};
     } catch {
       return {};
     }
@@ -43,7 +46,9 @@ export class YamlParserService implements YamlService {
         return undefined;
       }
       if (typeof current === "object") {
-        current = (current as Record<string, unknown>)[part];
+        current = ExplicitCast.from<object>(current).downcast<
+          Record<string, unknown>
+        >()[part];
       } else {
         return undefined;
       }
@@ -71,7 +76,9 @@ export class YamlParserService implements YamlService {
       ) {
         current[part] = isNextIndex ? [] : {};
       }
-      current = current[part] as Record<string, unknown>;
+      current = ExplicitCast.from<unknown>(current[part]).dangerousCast<
+        Record<string, unknown>
+      >();
     }
 
     const lastPart = parts[parts.length - 1];
@@ -90,7 +97,9 @@ export class YamlParserService implements YamlService {
       ) {
         return false;
       }
-      current = current[part] as Record<string, unknown>;
+      current = ExplicitCast.from<unknown>(current[part]).dangerousCast<
+        Record<string, unknown>
+      >();
     }
 
     const lastPart = parts[parts.length - 1];

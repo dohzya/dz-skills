@@ -47,6 +47,7 @@ import {
 } from "../markdown-surgeon/yaml.ts";
 import { basename, dirname, isAbsolute, join, resolve } from "@std/path";
 import { z } from "@zod/zod/mini";
+import { ExplicitCast } from "../explicit-cast.ts";
 
 // ============================================================================
 // Hexagonal Architecture Imports
@@ -95,7 +96,10 @@ import { ImportScopeToTagUseCase } from "./domain/use-cases/import/import-scope-
 import { RunCommandUseCase } from "./domain/use-cases/run-command.ts";
 import { ClaudeCommandUseCase } from "./domain/use-cases/claude-command.ts";
 import { GenerateSummaryUseCase } from "./domain/use-cases/summary.ts";
-import { ListTagsUseCase } from "./domain/use-cases/list-tags.ts";
+import {
+  type ListTagsOutput,
+  ListTagsUseCase,
+} from "./domain/use-cases/list-tags.ts";
 
 // ============================================================================
 // Global Options Type
@@ -113,6 +117,11 @@ interface GlobalOptions {
  * Type helper to include global options in command options
  */
 type WithGlobalOptions<T> = T & GlobalOptions;
+
+/** Downcast Cliffy's local options to include inherited global options */
+function asGlobal<T extends object>(options: T): WithGlobalOptions<T> {
+  return ExplicitCast.from<T>(options).dangerousCast<WithGlobalOptions<T>>();
+}
 
 // ============================================================================
 // Version
@@ -459,18 +468,18 @@ async function getEffectiveTags(
   const scopeJsonPath = join(scopePath, "scope.json");
   if (!(await exists(scopeJsonPath))) return Array.from(tags);
 
-  const scopeConfig = JSON.parse(
+  const scopeConfig = ExplicitCast.fromAny(JSON.parse(
     await Deno.readTextFile(scopeJsonPath),
-  ) as ScopeConfig;
+  )).dangerousCast<ScopeConfig>();
 
   // If child scope, load parent to find our tags
   if ("parent" in scopeConfig) {
     const parentPath = resolve(dirname(scopePath), scopeConfig.parent);
     const parentJsonPath = join(parentPath, "scope.json");
     if (await exists(parentJsonPath)) {
-      const parentConfig = JSON.parse(
+      const parentConfig = ExplicitCast.fromAny(JSON.parse(
         await Deno.readTextFile(parentJsonPath),
-      ) as ScopeConfigParent;
+      )).dangerousCast<ScopeConfigParent>();
       const myEntry = parentConfig.children.find((c) =>
         resolve(parentPath, c.path) === scopePath
       );
@@ -516,7 +525,9 @@ async function _findTasksByTagPattern(
     const indexPath = join(scope.absolutePath, "index.json");
     if (!(await exists(indexPath))) continue;
 
-    const index = JSON.parse(await Deno.readTextFile(indexPath)) as Index;
+    const index = ExplicitCast.fromAny(
+      JSON.parse(await Deno.readTextFile(indexPath)),
+    ).dangerousCast<Index>();
     for (const [id, task] of Object.entries(index.tasks)) {
       const effectiveTags = await getEffectiveTags(
         task.tags,
@@ -544,9 +555,9 @@ async function isChildWorklog(scopePath: string): Promise<boolean> {
   const scopeJsonPath = join(scopePath, "scope.json");
   if (!(await exists(scopeJsonPath))) return false;
 
-  const config = JSON.parse(
+  const config = ExplicitCast.fromAny(JSON.parse(
     await Deno.readTextFile(scopeJsonPath),
-  ) as ScopeConfig;
+  )).dangerousCast<ScopeConfig>();
   return "parent" in config;
 }
 
@@ -555,9 +566,9 @@ async function isChildWorklog(scopePath: string): Promise<boolean> {
  */
 async function getParentScope(childPath: string): Promise<string> {
   const scopeJsonPath = join(childPath, "scope.json");
-  const config = JSON.parse(
+  const config = ExplicitCast.fromAny(JSON.parse(
     await Deno.readTextFile(scopeJsonPath),
-  ) as ScopeConfigChild;
+  )).dangerousCast<ScopeConfigChild>();
   return resolve(dirname(childPath), config.parent);
 }
 
@@ -719,14 +730,16 @@ async function loadIndex(): Promise<Index> {
     );
   }
   const content = await readFile(INDEX_FILE);
-  const index = JSON.parse(content) as Index;
+  const index = ExplicitCast.fromAny(JSON.parse(content)).dangerousCast<
+    Index
+  >();
 
   // Run migration if needed
   if (!index.version || index.version < 2) {
     await migrateIndexToV2();
     // Reload index after migration
     const newContent = await readFile(INDEX_FILE);
-    return JSON.parse(newContent) as Index;
+    return ExplicitCast.fromAny(JSON.parse(newContent)).dangerousCast<Index>();
   }
 
   return index;
@@ -739,7 +752,9 @@ async function saveIndex(index: Index): Promise<void> {
 async function migrateIndexToV2(): Promise<void> {
   // Load index directly without triggering migration
   const content = await readFile(INDEX_FILE);
-  const index = JSON.parse(content) as Index;
+  const index = ExplicitCast.fromAny(JSON.parse(content)).dangerousCast<
+    Index
+  >();
 
   // Check if migration is needed
   if (index.version === 2) {
@@ -759,10 +774,7 @@ async function migrateIndexToV2(): Promise<void> {
     const content = await loadTaskContent(taskId);
     const doc = await parseDocument(content);
     const yamlContent = getFrontmatterContent(doc);
-    const frontmatter = parseFrontmatter(yamlContent) as Record<
-      string,
-      unknown
-    >;
+    const frontmatter = parseFrontmatter(yamlContent);
 
     // 1. Convert active status to created (NOT started)
     if (frontmatter.status === "active") {
@@ -1069,7 +1081,8 @@ async function resolveTaskIdAcrossScopes(
   if (await exists(scopeJsonPath)) {
     try {
       const configContent = await readFile(scopeJsonPath);
-      const config = JSON.parse(configContent) as ScopeConfig;
+      const config = ExplicitCast.fromAny(JSON.parse(configContent))
+        .dangerousCast<ScopeConfig>();
       if ("children" in config) {
         for (const child of config.children) {
           // Resolve child path (can be relative or absolute)
@@ -1431,7 +1444,9 @@ async function discoverScopes(
   if (await exists(rootScopeJsonPath)) {
     try {
       const content = await readFile(rootScopeJsonPath);
-      const config = JSON.parse(content) as ScopeConfig;
+      const config = ExplicitCast.fromAny(JSON.parse(content)).dangerousCast<
+        ScopeConfig
+      >();
       if ("children" in config) {
         for (const child of config.children) {
           idMap.set(child.path, child.id);
@@ -1477,7 +1492,9 @@ async function loadOrCreateScopeJson(
   if (await exists(scopeJsonPath)) {
     try {
       const content = await readFile(scopeJsonPath);
-      return JSON.parse(content) as ScopeConfig;
+      return ExplicitCast.fromAny(JSON.parse(content)).dangerousCast<
+        ScopeConfig
+      >();
     } catch {
       // Corrupted, will recreate
     }
@@ -1700,7 +1717,8 @@ async function _getScopeId(
   if (await exists(rootConfigPath)) {
     try {
       const content = await readFile(rootConfigPath);
-      const rootConfig = JSON.parse(content) as ScopeConfig;
+      const rootConfig = ExplicitCast.fromAny(JSON.parse(content))
+        .dangerousCast<ScopeConfig>();
 
       if ("children" in rootConfig) {
         const child = rootConfig.children.find((c) => c.path === relativePath);
@@ -1856,7 +1874,9 @@ async function parseTaskFile(content: string): Promise<ParsedTask> {
     meta = TaskMetaSchema.parse(parseFrontmatter(yamlContent));
   } catch {
     // Gracefully handle malformed frontmatter (e.g., in tests or corrupted files)
-    meta = parseFrontmatter(yamlContent) as unknown as TaskMeta;
+    meta = ExplicitCast.from<Record<string, unknown>>(
+      parseFrontmatter(yamlContent),
+    ).dangerousCast<TaskMeta>();
   }
 
   const entriesId = await getEntriesId();
@@ -2039,7 +2059,9 @@ function formatTodoList(output: TodoListOutput): string {
   const allTodoIds = output.todos.map((t) => t.id);
   const allTaskIds = Array.from(
     new Set(
-      output.todos.map((t) => t.metadata.taskId).filter(Boolean) as string[],
+      ExplicitCast.from<(string | undefined)[]>(
+        output.todos.map((t) => t.metadata.taskId).filter(Boolean),
+      ).downcast<string[]>(),
     ),
   );
 
@@ -2494,14 +2516,14 @@ async function cmdShow(
     activeOnly,
     worklogDir: WORKLOG_DIR,
     gitRoot,
-  }) as ShowOutput;
+  });
 }
 
 async function cmdTraces(taskId: string): Promise<TracesOutput> {
   await purge();
   taskId = await resolveTaskId(taskId);
 
-  return await listTracesUseCase.execute({ taskId }) as TracesOutput;
+  return await listTracesUseCase.execute({ taskId });
 }
 
 async function cmdCheckpoint(
@@ -2710,13 +2732,13 @@ async function cmdMeta(
 async function cmdListTags(
   gitRoot: string | null,
   cwd: string,
-): Promise<{ tags: Array<{ tag: string; count: number }> }> {
+): Promise<ListTagsOutput> {
   return await listTagsUseCase.listAll({
     gitRoot,
     cwd,
     worklogDir: WORKLOG_DIR,
     depthLimit: WORKLOG_DEPTH_LIMIT,
-  }) as { tags: Array<{ tag: string; count: number }> };
+  });
 }
 
 /**
@@ -2732,7 +2754,10 @@ async function cmdTags(
   gitRoot: string | null,
   cwd: string,
 ): Promise<
-  { tags?: string[]; allTags?: Array<{ tag: string; count: number }> }
+  {
+    tags?: readonly string[];
+    allTags?: ReadonlyArray<{ tag: string; count: number }>;
+  }
 > {
   // Case 1: No taskId → list all tags
   if (!taskId) {
@@ -2751,13 +2776,12 @@ async function cmdTags(
     const content = await loadTaskContent(resolvedId);
     const doc = await parseDocument(content);
     const yamlContent = getFrontmatterContent(doc);
-    const frontmatter = parseFrontmatter(yamlContent) as Record<
-      string,
-      unknown
-    >;
+    const frontmatter = parseFrontmatter(yamlContent);
 
     const effectiveTags = await getEffectiveTags(
-      frontmatter.tags as string[] | undefined,
+      ExplicitCast.from<unknown>(frontmatter.tags).dangerousCast<
+        string[] | undefined
+      >(),
       join(cwd, WORKLOG_DIR),
       gitRoot,
     );
@@ -2769,9 +2793,11 @@ async function cmdTags(
   const content = await loadTaskContent(resolvedId);
   const doc = await parseDocument(content);
   const yamlContent = getFrontmatterContent(doc);
-  const frontmatter = parseFrontmatter(yamlContent) as Record<string, unknown>;
+  const frontmatter = parseFrontmatter(yamlContent);
 
-  const currentTags = (frontmatter.tags as string[]) || [];
+  const currentTags =
+    ExplicitCast.from<unknown>(frontmatter.tags).dangerousCast<string[]>() ||
+    [];
   const tagSet = new Set(currentTags);
 
   addTags?.forEach((t) => tagSet.add(t));
@@ -2801,7 +2827,7 @@ async function cmdTodoList(taskId?: string): Promise<TodoListOutput> {
     taskId = await resolveTaskId(taskId);
   }
 
-  return await listTodosUseCase.execute({ taskId }) as TodoListOutput;
+  return await listTodosUseCase.execute({ taskId });
 }
 
 async function cmdTodoAdd(
@@ -2862,13 +2888,13 @@ async function cmdList(
     filterPattern,
     worklogDir: WORKLOG_DIR,
     depthLimit: WORKLOG_DEPTH_LIMIT,
-  }) as ListOutput;
+  });
 }
 
 async function cmdSummary(since: string | null): Promise<SummaryOutput> {
   await purge();
 
-  return await summaryUseCase.execute({ since }) as SummaryOutput;
+  return await summaryUseCase.execute({ since });
 }
 
 async function cmdImport(
@@ -2880,7 +2906,7 @@ async function cmdImport(
   return await importTasksUseCase.execute({
     sourcePath,
     removeSource,
-  }) as ImportOutput;
+  });
 }
 
 /**
@@ -2902,7 +2928,7 @@ async function cmdImportScopeToTag(
     customTagName,
     gitRoot,
     worklogDir: WORKLOG_DIR,
-  }) as ImportOutput & { tag: string };
+  });
 }
 
 async function cmdScopes(refresh: boolean, cwd: string): Promise<ScopesOutput> {
@@ -2915,7 +2941,9 @@ async function cmdScopes(refresh: boolean, cwd: string): Promise<ScopesOutput> {
     if (await exists(scopeJsonPath)) {
       try {
         const content = await readFile(scopeJsonPath);
-        const config = JSON.parse(content) as ScopeConfig;
+        const config = ExplicitCast.fromAny(JSON.parse(content)).dangerousCast<
+          ScopeConfig
+        >();
 
         // If we have a parent configured, use parent-based listing
         if ("parent" in config && config.parent) {
@@ -2990,7 +3018,9 @@ async function listScopesFromParent(
   }
 
   const content = await readFile(parentScopeJsonPath);
-  const config = JSON.parse(content) as ScopeConfig;
+  const config = ExplicitCast.fromAny(JSON.parse(content)).dangerousCast<
+    ScopeConfig
+  >();
 
   if (!("children" in config)) {
     return { scopes: [] };
@@ -3163,7 +3193,9 @@ async function cmdScopesAddParent(
   if (await exists(childScopeJsonPath)) {
     try {
       const content = await readFile(childScopeJsonPath);
-      const config = JSON.parse(content) as ScopeConfig;
+      const config = ExplicitCast.fromAny(JSON.parse(content)).dangerousCast<
+        ScopeConfig
+      >();
       if ("parent" in config && config.parent) {
         throw new WtError(
           "already_has_parent",
@@ -3474,7 +3506,7 @@ async function cmdScopesAssign(
     cwd,
     worklogDir: WORKLOG_DIR,
     depthLimit: WORKLOG_DEPTH_LIMIT,
-  }) as AssignOutput;
+  });
 }
 
 async function _cmdMove(
@@ -3545,7 +3577,7 @@ async function loadIndexFrom(worklogPath: string): Promise<Index> {
     throw new WtError("not_initialized", `No worklog at: ${worklogPath}`);
   }
   const content = await readFile(indexPath);
-  return JSON.parse(content) as Index;
+  return ExplicitCast.fromAny(JSON.parse(content)).dangerousCast<Index>();
 }
 
 async function _findTaskInScopes(
@@ -3716,8 +3748,8 @@ const todoListCmd = new Command()
     try {
       const { gitRoot } = await resolveScopeContext(
         options.scope,
-        (options as WithGlobalOptions<typeof options>).cwd,
-        (options as WithGlobalOptions<typeof options>).worklogDir,
+        asGlobal(options).cwd,
+        asGlobal(options).worklogDir,
       );
       // Pre-resolve across scopes when taskId is provided
       let resolvedTaskId = taskId;
@@ -3745,8 +3777,8 @@ const todoAddCmd = new Command()
     try {
       const { gitRoot } = await resolveScopeContext(
         options.scope,
-        (options as WithGlobalOptions<typeof options>).cwd,
-        (options as WithGlobalOptions<typeof options>).worklogDir,
+        asGlobal(options).cwd,
+        asGlobal(options).worklogDir,
       );
       const resolvedTaskId = await resolveTaskIdAcrossScopes(
         taskId,
@@ -3771,8 +3803,8 @@ const todoSetCmd = new Command()
     try {
       await resolveScopeContext(
         options.scope,
-        (options as WithGlobalOptions<typeof options>).cwd,
-        (options as WithGlobalOptions<typeof options>).worklogDir,
+        asGlobal(options).cwd,
+        asGlobal(options).worklogDir,
       );
       // Parse key=value pairs and todo-id
       const updates: Record<string, string> = {};
@@ -3807,8 +3839,8 @@ const todoNextCmd = new Command()
     try {
       const { gitRoot } = await resolveScopeContext(
         options.scope,
-        (options as WithGlobalOptions<typeof options>).cwd,
-        (options as WithGlobalOptions<typeof options>).worklogDir,
+        asGlobal(options).cwd,
+        asGlobal(options).worklogDir,
       );
       const resolvedTaskId = await resolveTaskIdWithEnvFallbackAcrossScopes(
         taskId,
@@ -3843,8 +3875,8 @@ const scopesListCmd = new Command()
   .action(async (options, scopeId) => {
     try {
       applyDirOptions(
-        (options as WithGlobalOptions<typeof options>).cwd,
-        (options as WithGlobalOptions<typeof options>).worklogDir,
+        asGlobal(options).cwd,
+        asGlobal(options).worklogDir,
       );
       const cwd = Deno.cwd();
       const output = await cmdScopesList(
@@ -3876,8 +3908,8 @@ const scopesAddCmd = new Command()
   .action(async (options, scopeId, pathArg) => {
     try {
       applyDirOptions(
-        (options as WithGlobalOptions<typeof options>).cwd,
-        (options as WithGlobalOptions<typeof options>).worklogDir,
+        asGlobal(options).cwd,
+        asGlobal(options).worklogDir,
       );
       const cwd = Deno.cwd();
       const effectivePath = options.path ?? pathArg;
@@ -3908,8 +3940,8 @@ const scopesAddParentCmd = new Command()
   .action(async (options, parentPath) => {
     try {
       applyDirOptions(
-        (options as WithGlobalOptions<typeof options>).cwd,
-        (options as WithGlobalOptions<typeof options>).worklogDir,
+        asGlobal(options).cwd,
+        asGlobal(options).worklogDir,
       );
       const cwd = Deno.cwd();
       const output = await cmdScopesAddParent(parentPath, options.id, cwd);
@@ -3926,8 +3958,8 @@ const scopesRenameCmd = new Command()
   .action(async (options, scopeId, newId) => {
     try {
       applyDirOptions(
-        (options as WithGlobalOptions<typeof options>).cwd,
-        (options as WithGlobalOptions<typeof options>).worklogDir,
+        asGlobal(options).cwd,
+        asGlobal(options).worklogDir,
       );
       const cwd = Deno.cwd();
       const output = await cmdScopesRename(scopeId, newId, cwd);
@@ -3949,8 +3981,8 @@ const scopesDeleteCmd = new Command()
   .action(async (options, scopeId) => {
     try {
       applyDirOptions(
-        (options as WithGlobalOptions<typeof options>).cwd,
-        (options as WithGlobalOptions<typeof options>).worklogDir,
+        asGlobal(options).cwd,
+        asGlobal(options).worklogDir,
       );
       const cwd = Deno.cwd();
       const output = await cmdScopesDelete(
@@ -3972,8 +4004,8 @@ const scopesAssignCmd = new Command()
   .action(async (options, scopeId, ...taskIds) => {
     try {
       applyDirOptions(
-        (options as WithGlobalOptions<typeof options>).cwd,
-        (options as WithGlobalOptions<typeof options>).worklogDir,
+        asGlobal(options).cwd,
+        asGlobal(options).worklogDir,
       );
       const cwd = Deno.cwd();
       const output = await cmdScopesAssign(scopeId, taskIds, cwd);
@@ -3992,8 +4024,8 @@ const scopesExportCmd = new Command()
   .action(async (options, tag, targetPath) => {
     try {
       applyDirOptions(
-        (options as WithGlobalOptions<typeof options>).cwd,
-        (options as WithGlobalOptions<typeof options>).worklogDir,
+        asGlobal(options).cwd,
+        asGlobal(options).worklogDir,
       );
       const cwd = Deno.cwd();
       const gitRoot = await findGitRoot(cwd);
@@ -4025,8 +4057,8 @@ const scopesSyncWorktreesCmd = new Command()
   .action(async (options) => {
     try {
       applyDirOptions(
-        (options as WithGlobalOptions<typeof options>).cwd,
-        (options as WithGlobalOptions<typeof options>).worklogDir,
+        asGlobal(options).cwd,
+        asGlobal(options).worklogDir,
       );
       const cwd = Deno.cwd();
       const output = await cmdScopesSyncWorktrees(cwd, options.dryRun ?? false);
@@ -4065,8 +4097,8 @@ const scopesCmd = new Command()
     // Default action: list scopes
     try {
       applyDirOptions(
-        (options as WithGlobalOptions<typeof options>).cwd,
-        (options as WithGlobalOptions<typeof options>).worklogDir,
+        asGlobal(options).cwd,
+        asGlobal(options).worklogDir,
       );
       const cwd = Deno.cwd();
       const output = await cmdScopesList(cwd, false, undefined);
@@ -4102,8 +4134,8 @@ const initCmd = new Command()
   .action(async (options) => {
     try {
       applyDirOptions(
-        (options as WithGlobalOptions<typeof options>).cwd,
-        (options as WithGlobalOptions<typeof options>).worklogDir,
+        asGlobal(options).cwd,
+        asGlobal(options).worklogDir,
       );
       const output = await cmdInit();
       console.log(options.json ? JSON.stringify(output) : formatStatus(output));
@@ -4137,8 +4169,8 @@ const taskCreateCmd = new Command()
     try {
       await resolveScopeContext(
         options.scope,
-        (options as WithGlobalOptions<typeof options>).cwd,
-        (options as WithGlobalOptions<typeof options>).worklogDir,
+        asGlobal(options).cwd,
+        asGlobal(options).worklogDir,
       );
       const todos = options.todo ?? [];
       const tags = options.tag ?? [];
@@ -4211,8 +4243,8 @@ const createCmd = new Command()
     try {
       await resolveScopeContext(
         options.scope,
-        (options as WithGlobalOptions<typeof options>).cwd,
-        (options as WithGlobalOptions<typeof options>).worklogDir,
+        asGlobal(options).cwd,
+        asGlobal(options).worklogDir,
       );
 
       // Validate: can't have both --ready and --started
@@ -4297,8 +4329,8 @@ const traceCmd = new Command()
     try {
       const { gitRoot } = await resolveScopeContext(
         options.scope,
-        (options as WithGlobalOptions<typeof options>).cwd,
-        (options as WithGlobalOptions<typeof options>).worklogDir,
+        asGlobal(options).cwd,
+        asGlobal(options).worklogDir,
       );
       const resolvedTaskId = await resolveTaskIdAcrossScopes(
         taskId,
@@ -4342,8 +4374,8 @@ const showCmd = new Command()
     try {
       const { gitRoot } = await resolveScopeContext(
         options.scope,
-        (options as WithGlobalOptions<typeof options>).cwd,
-        (options as WithGlobalOptions<typeof options>).worklogDir,
+        asGlobal(options).cwd,
+        asGlobal(options).worklogDir,
       );
       const resolvedTaskId = await resolveTaskIdWithEnvFallbackAcrossScopes(
         taskId,
@@ -4365,8 +4397,8 @@ const tracesCmd = new Command()
     try {
       const { gitRoot } = await resolveScopeContext(
         options.scope,
-        (options as WithGlobalOptions<typeof options>).cwd,
-        (options as WithGlobalOptions<typeof options>).worklogDir,
+        asGlobal(options).cwd,
+        asGlobal(options).worklogDir,
       );
       const resolvedTaskId = await resolveTaskIdWithEnvFallbackAcrossScopes(
         taskId,
@@ -4390,8 +4422,8 @@ const checkpointCmd = new Command()
     try {
       const { gitRoot } = await resolveScopeContext(
         options.scope,
-        (options as WithGlobalOptions<typeof options>).cwd,
-        (options as WithGlobalOptions<typeof options>).worklogDir,
+        asGlobal(options).cwd,
+        asGlobal(options).worklogDir,
       );
       const resolvedTaskId = await resolveTaskIdAcrossScopes(
         taskId,
@@ -4426,8 +4458,8 @@ const doneCmd = new Command()
     try {
       const { gitRoot } = await resolveScopeContext(
         options.scope,
-        (options as WithGlobalOptions<typeof options>).cwd,
-        (options as WithGlobalOptions<typeof options>).worklogDir,
+        asGlobal(options).cwd,
+        asGlobal(options).worklogDir,
       );
       const resolvedTaskId = await resolveTaskIdAcrossScopes(
         taskId,
@@ -4456,8 +4488,8 @@ const readyCmd = new Command()
     try {
       const { gitRoot } = await resolveScopeContext(
         options.scope,
-        (options as WithGlobalOptions<typeof options>).cwd,
-        (options as WithGlobalOptions<typeof options>).worklogDir,
+        asGlobal(options).cwd,
+        asGlobal(options).worklogDir,
       );
       const resolvedTaskId = await resolveTaskIdWithEnvFallbackAcrossScopes(
         taskId,
@@ -4479,8 +4511,8 @@ const startCmd = new Command()
     try {
       const { gitRoot } = await resolveScopeContext(
         options.scope,
-        (options as WithGlobalOptions<typeof options>).cwd,
-        (options as WithGlobalOptions<typeof options>).worklogDir,
+        asGlobal(options).cwd,
+        asGlobal(options).worklogDir,
       );
       const resolvedTaskId = await resolveTaskIdWithEnvFallbackAcrossScopes(
         taskId,
@@ -4509,8 +4541,8 @@ const runCmd = new Command()
     try {
       const { gitRoot } = await resolveScopeContext(
         options.scope,
-        (options as WithGlobalOptions<typeof options>).cwd,
-        (options as WithGlobalOptions<typeof options>).worklogDir,
+        asGlobal(options).cwd,
+        asGlobal(options).worklogDir,
       );
 
       let taskId: string | undefined;
@@ -4572,8 +4604,8 @@ const claudeCmd = new Command()
     try {
       const { gitRoot } = await resolveScopeContext(
         options.scope,
-        (options as WithGlobalOptions<typeof options>).cwd,
-        (options as WithGlobalOptions<typeof options>).worklogDir,
+        asGlobal(options).cwd,
+        asGlobal(options).worklogDir,
       );
 
       // If first arg looks like a taskId (not starting with -), use it as taskId
@@ -4617,8 +4649,8 @@ const updateCmd = new Command()
     try {
       const { gitRoot } = await resolveScopeContext(
         options.scope,
-        (options as WithGlobalOptions<typeof options>).cwd,
-        (options as WithGlobalOptions<typeof options>).worklogDir,
+        asGlobal(options).cwd,
+        asGlobal(options).worklogDir,
       );
       const resolvedTaskId = await resolveTaskIdWithEnvFallbackAcrossScopes(
         taskId,
@@ -4648,8 +4680,8 @@ const cancelCmd = new Command()
     try {
       const { gitRoot } = await resolveScopeContext(
         options.scope,
-        (options as WithGlobalOptions<typeof options>).cwd,
-        (options as WithGlobalOptions<typeof options>).worklogDir,
+        asGlobal(options).cwd,
+        asGlobal(options).worklogDir,
       );
 
       // Smart argument resolution:
@@ -4696,8 +4728,8 @@ const metaCmd = new Command()
     try {
       const { gitRoot } = await resolveScopeContext(
         options.scope,
-        (options as WithGlobalOptions<typeof options>).cwd,
-        (options as WithGlobalOptions<typeof options>).worklogDir,
+        asGlobal(options).cwd,
+        asGlobal(options).worklogDir,
       );
 
       // Smart argument resolution:
@@ -4749,8 +4781,8 @@ const tagsCmd = new Command()
     try {
       const { gitRoot } = await resolveScopeContext(
         options.scope,
-        (options as WithGlobalOptions<typeof options>).cwd,
-        (options as WithGlobalOptions<typeof options>).worklogDir,
+        asGlobal(options).cwd,
+        asGlobal(options).worklogDir,
       );
 
       // Pre-resolve across scopes when taskId is provided
@@ -4824,8 +4856,8 @@ const listCmd = new Command()
       if (options.cancelled) statusFilters.push("cancelled");
 
       const explicitWorklog = applyDirOptions(
-        (options as WithGlobalOptions<typeof options>).cwd,
-        (options as WithGlobalOptions<typeof options>).worklogDir,
+        asGlobal(options).cwd,
+        asGlobal(options).worklogDir,
       );
 
       if (explicitWorklog) {
@@ -4902,8 +4934,8 @@ const summaryCmd = new Command()
   .action(async (options) => {
     try {
       applyDirOptions(
-        (options as WithGlobalOptions<typeof options>).cwd,
-        (options as WithGlobalOptions<typeof options>).worklogDir,
+        asGlobal(options).cwd,
+        asGlobal(options).worklogDir,
       );
       const output = await cmdSummary(options.since ?? null);
       console.log(
@@ -4928,8 +4960,8 @@ const importCmd = new Command()
   .action(async (options) => {
     try {
       applyDirOptions(
-        (options as WithGlobalOptions<typeof options>).cwd,
-        (options as WithGlobalOptions<typeof options>).worklogDir,
+        asGlobal(options).cwd,
+        asGlobal(options).worklogDir,
       );
       if (options.path && options.branch) {
         throw new WtError(

@@ -11,7 +11,8 @@ export const TASK_STATUSES = [
 ] as const;
 
 export function isValidTaskStatus(value: string): value is TaskStatus {
-  return TASK_STATUSES.includes(value as TaskStatus);
+  const statuses: readonly string[] = TASK_STATUSES;
+  return statuses.includes(value);
 }
 
 export interface TaskMeta {
@@ -80,7 +81,7 @@ export interface TraceOutput {
 export interface TracesOutput {
   task: string;
   desc: string;
-  entries: Entry[];
+  entries: readonly Entry[];
 }
 
 export interface ShowOutput {
@@ -93,9 +94,9 @@ export interface ShowOutput {
   ready: string | null; // formatted date (from ready_at)
   started: string | null; // formatted date (from started_at)
   last_checkpoint: Checkpoint | null;
-  entries_since_checkpoint: Entry[];
-  todos: Todo[];
-  tags?: string[]; // Effective tags (task + inherited worktree tags)
+  entries_since_checkpoint: readonly Entry[];
+  todos: readonly Todo[];
+  tags?: readonly string[]; // Effective tags (task + inherited worktree tags)
 }
 
 export interface ListTaskItem {
@@ -105,24 +106,24 @@ export interface ListTaskItem {
   status: TaskStatus;
   created: string;
   scopePrefix?: string;
-  tags?: string[];
+  tags?: readonly string[];
   filterPattern?: string; // Pattern used for filtering (to hide from display)
 }
 
 export interface ListOutput {
-  tasks: ListTaskItem[];
+  tasks: readonly ListTaskItem[];
 }
 
 export interface SummaryTaskItem {
   id: string;
   desc: string;
   status: TaskStatus;
-  checkpoints: Checkpoint[];
-  entries: Entry[];
+  checkpoints: readonly Checkpoint[];
+  entries: readonly Entry[];
 }
 
 export interface SummaryOutput {
-  tasks: SummaryTaskItem[];
+  tasks: readonly SummaryTaskItem[];
 }
 
 export interface StatusOutput {
@@ -132,14 +133,14 @@ export interface StatusOutput {
 export interface ImportTaskResult {
   id: string;
   status: "imported" | "merged" | "skipped";
-  warnings?: string[];
+  warnings?: readonly string[];
 }
 
 export interface ImportOutput {
   imported: number;
   merged: number;
   skipped: number;
-  tasks: ImportTaskResult[];
+  tasks: readonly ImportTaskResult[];
 }
 
 // Scope management (monorepo)
@@ -192,11 +193,11 @@ export interface ScopeDetailOutput {
 export interface AssignOutput {
   assigned: number;
   merged: number;
-  errors: Array<{ taskId: string; error: string }>;
+  errors: ReadonlyArray<{ taskId: string; error: string }>;
 }
 
 export interface TodoListOutput {
-  todos: Todo[];
+  todos: readonly Todo[];
 }
 
 export interface TodoAddOutput {

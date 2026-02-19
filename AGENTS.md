@@ -90,7 +90,9 @@ deno fmt        # MANDATORY — CI checks markdown formatting too
 
 ## TypeScript
 
-**NEVER `as unknown as T`.**
+→ See [packages/tools/TYPESCRIPT.md](packages/tools/TYPESCRIPT.md) for TypeScript coding rules (no type assertions — use ExplicitCast instead).
+
+**NEVER `as Type` or `<Type>value`.** Use `ExplicitCast` (see above). `as const` is allowed.
 
 **Use Zod 4 Mini:**
 

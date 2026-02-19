@@ -9,6 +9,7 @@
 
 import type { Document, Section } from "../entities/document.ts";
 import type { HashService } from "../ports/hash-service.ts";
+import { ExplicitCast } from "../../../explicit-cast.ts";
 
 const HEADER_REGEX = /^(#{1,6})\s+(.+)$/;
 const FRONTMATTER_DELIMITER = "---";
@@ -83,7 +84,9 @@ export class ParseDocumentUseCase {
       const nextSection = sections[i + 1];
       if (nextSection) {
         // Use mutable cast to set lineEnd - matching original parser behavior
-        (sections[i] as { lineEnd: number }).lineEnd = nextSection.line - 1;
+        ExplicitCast.from<object>(sections[i]).dangerousCast<
+          { lineEnd: number }
+        >().lineEnd = nextSection.line - 1;
       } else {
         // Last section goes to end of file
         // Trim trailing empty lines for lineEnd
@@ -94,7 +97,9 @@ export class ParseDocumentUseCase {
         ) {
           lastContentLine--;
         }
-        (sections[i] as { lineEnd: number }).lineEnd = lastContentLine;
+        ExplicitCast.from<object>(sections[i]).dangerousCast<
+          { lineEnd: number }
+        >().lineEnd = lastContentLine;
       }
     }
 

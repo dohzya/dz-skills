@@ -7,6 +7,7 @@ import type { ScopeRepository } from "../../ports/scope-repository.ts";
 import type { FileSystem } from "../../ports/filesystem.ts";
 import type { GitService } from "../../ports/git-service.ts";
 import type { MarkdownService } from "../../ports/markdown-service.ts";
+import { ExplicitCast } from "../../../../explicit-cast.ts";
 
 export interface ExportScopeInput {
   readonly tagPattern: string;
@@ -68,7 +69,9 @@ export class ExportScopeUseCase {
       if (!(await this.fs.exists(indexPath))) continue;
 
       const content = await this.fs.readFile(indexPath);
-      const index = JSON.parse(content) as Index;
+      const index = ExplicitCast.fromAny(JSON.parse(content)).dangerousCast<
+        Index
+      >();
 
       for (const [id, task] of Object.entries(index.tasks)) {
         const tags = task.tags ?? [];
@@ -99,9 +102,9 @@ export class ExportScopeUseCase {
     if (await this.fs.exists(targetWorklogPath)) {
       const targetIndexPath = `${targetWorklogPath}/index.json`;
       if (await this.fs.exists(targetIndexPath)) {
-        const targetIndex = JSON.parse(
+        const targetIndex = ExplicitCast.fromAny(JSON.parse(
           await this.fs.readFile(targetIndexPath),
-        ) as Index;
+        )).dangerousCast<Index>();
         if (Object.keys(targetIndex.tasks).length > 0) {
           throw new WtError(
             "invalid_state",
@@ -131,7 +134,7 @@ export class ExportScopeUseCase {
       // Adjust tags
       const currentTags = indexEntry.tags ?? [];
       const newTags = input.removeTag
-        ? (currentTags as string[])
+        ? currentTags
           .filter((t) => !matchesTagPattern(input.tagPattern, t))
           .map((t) =>
             t.startsWith(input.tagPattern + "/")
@@ -162,7 +165,8 @@ export class ExportScopeUseCase {
       await this.fs.remove(sourceTaskPath);
       const sourceIndexPath = `${scopePath}/index.json`;
       const sourceIndexContent = await this.fs.readFile(sourceIndexPath);
-      const sourceIndex = JSON.parse(sourceIndexContent) as Index;
+      const sourceIndex = ExplicitCast.fromAny(JSON.parse(sourceIndexContent))
+        .dangerousCast<Index>();
       const updatedTasks = { ...sourceIndex.tasks };
       delete updatedTasks[id];
       await this.fs.writeFile(

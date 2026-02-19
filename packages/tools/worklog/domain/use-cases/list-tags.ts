@@ -8,6 +8,7 @@ import type { TaskRepository } from "../ports/task-repository.ts";
 import type { ScopeRepository } from "../ports/scope-repository.ts";
 import type { FileSystem } from "../ports/filesystem.ts";
 import type { MarkdownService } from "../ports/markdown-service.ts";
+import { ExplicitCast } from "../../../explicit-cast.ts";
 
 export interface ListTagsInput {
   readonly gitRoot: string | null;
@@ -61,7 +62,9 @@ export class ListTagsUseCase {
       if (!(await this.fs.exists(indexPath))) continue;
 
       const content = await this.fs.readFile(indexPath);
-      const index = JSON.parse(content) as Index;
+      const index = ExplicitCast.fromAny(JSON.parse(content)).dangerousCast<
+        Index
+      >();
       for (const task of Object.values(index.tasks)) {
         if (task.tags) {
           for (const tag of task.tags) {
