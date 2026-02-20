@@ -4634,6 +4634,8 @@ const startCmd = new Command()
   .arguments(HAS_ENV_TASK_ID ? "[taskId:string]" : "<taskId:string>")
   .option("--json", "Output as JSON")
   .option("--scope <scope:string>", "Target specific scope")
+  .option("--name <name:string>", "Update task name")
+  .option("--desc <desc:string>", "Update task description")
   .action(async (options, taskId?: string) => {
     try {
       const { gitRoot } = await resolveScopeContext(
@@ -4645,7 +4647,10 @@ const startCmd = new Command()
         taskId,
         options.scope ? null : gitRoot,
       );
-      const output = await cmdStart(resolvedTaskId);
+      let output = await cmdStart(resolvedTaskId);
+      if (options.name !== undefined || options.desc !== undefined) {
+        output = await cmdUpdate(resolvedTaskId, options.name, options.desc);
+      }
       console.log(options.json ? JSON.stringify(output) : formatStatus(output));
     } catch (e) {
       handleError(e, options.json ?? false);

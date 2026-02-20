@@ -2380,6 +2380,51 @@ Deno.test("start - rejects cancelled tasks", async () => {
   }
 });
 
+Deno.test("start --desc - starts task and sets description", async () => {
+  const tempDir = await Deno.makeTempDir();
+  const originalCwd = Deno.cwd();
+  try {
+    Deno.chdir(tempDir);
+    await main(["init"]);
+
+    await main(["create", "My task"]);
+    const ls = await captureOutput(() => main(["list", "--all", "--json"]));
+    const id = JSON.parse(ls).tasks[0].id;
+
+    await main(["start", id, "--desc", "My detailed description"]);
+
+    const taskContent = await Deno.readTextFile(`.worklog/tasks/${id}.md`);
+    assertStringIncludes(taskContent, "status: started");
+    assert(taskContent.match(/desc:.*My detailed description/));
+  } finally {
+    Deno.chdir(originalCwd);
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});
+
+Deno.test("start --name --desc - starts task and updates both fields", async () => {
+  const tempDir = await Deno.makeTempDir();
+  const originalCwd = Deno.cwd();
+  try {
+    Deno.chdir(tempDir);
+    await main(["init"]);
+
+    await main(["create", "Old name"]);
+    const ls = await captureOutput(() => main(["list", "--all", "--json"]));
+    const id = JSON.parse(ls).tasks[0].id;
+
+    await main(["start", id, "--name", "New name", "--desc", "New desc"]);
+
+    const taskContent = await Deno.readTextFile(`.worklog/tasks/${id}.md`);
+    assertStringIncludes(taskContent, "status: started");
+    assert(taskContent.match(/name:.*New name/));
+    assert(taskContent.match(/desc:.*New desc/));
+  } finally {
+    Deno.chdir(originalCwd);
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});
+
 // ============================================================================
 // Update command tests
 // ============================================================================
