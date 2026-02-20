@@ -11,9 +11,9 @@ Track work progress with traces and checkpoints. **Always work within a worktask
 
 **Task lifecycle:** `created` → `ready` → `started` → `done` / `cancelled`
 
-- **created**: Task defined, not ready to work on yet
-- **ready**: Task ready to be picked up
-- **started**: Actively working on the task
+- **created**: Task defined, scope still being refined
+- **ready**: Fully scoped, queued for execution — work not started yet (use for backlog or tasks assigned to future sub-agents)
+- **started**: Actively executing NOW — always `start` before tracing
 - **done**: Task completed with final checkpoint
 - **cancelled**: Task abandoned
 
@@ -173,6 +173,38 @@ wl run <id> claude -c --model opus
 
 `WORKLOG_TASK_ID` is also picked up automatically by `trace`, `checkpoint`, `done`, etc. when running inside `wl run` — no need to specify `<id>` explicitly.
 
+### 6. Sub-Agent Communication via Subtasks
+
+When delegating work to a sub-agent (e.g., `wl claude`), use subtasks to give each agent its own tracing scope without polluting the parent task.
+
+```bash
+# Main agent creates parent task and launches sub-agent
+wl create --started "Implement feature X"
+wl claude <id>         # sub-agent inherits WORKLOG_TASK_ID
+
+# Sub-agent creates its own subtask for scoped tracing
+wl create --parent <parent-id> --started "Analyze existing API"
+
+# Sub-agent traces to its own subtask
+wl trace <subtask-id> "Found 3 endpoints to modify"
+
+# Main agent monitors sub-agent progress
+wl show <parent-id>          # shows subtasks-since-checkpoint
+wl list --subtasks           # all tasks with subtasks indented
+wl list --parent <parent-id> # only children of this parent (flat)
+```
+
+**When to use subtasks:**
+
+- Sub-agent has a distinct scope of work (not just a step)
+- You want sub-agent traces isolated from parent traces
+- Multiple sub-agents work in parallel under one parent
+
+**`ready` vs `started` for sub-agent work:**
+
+- Create subtasks as `ready` when planning ahead (not yet assigned)
+- Subtask moves to `started` when the sub-agent actually begins
+
 ## Common Mistakes to Avoid
 
 1. **Working without worktask** → Always create worktask first
@@ -191,6 +223,7 @@ wl create "name" ["description"]  # Create worktask (default: created)
 wl create --started "name"        # Create and start immediately
 wl ready <id>                     # Mark task ready
 wl start <id>                     # Start working on task
+wl start <id> --name "new name"   # Rename while starting
 wl update <id> --name "new"       # Update task name or description
 wl trace <id> "msg"               # Log with context (causes/pistes)
 wl trace <id> -t T14:30 "msg"     # With timestamp
@@ -211,6 +244,18 @@ wl claude [id] [claude-args...]   # Launch Claude with task context
 wl create "Task" --todo "Step 1" --todo "Step 2"
 wl todo list                      # All TODOs
 wl todo set status=done <id>      # Mark done
+
+# Subtasks (sub-agent communication)
+wl create --parent <id> --started "Sub-task"  # Create subtask
+wl list --subtasks                # All tasks with subtasks indented
+wl list --parent <id>             # Only children of parent (flat)
+
+# Tags
+wl create "Task" --tag "backend"  # Tag at creation
+wl tags <id>                      # View tags on a task
+wl tags add <tag> <id>            # Add tag
+wl tags remove <tag> <id>         # Remove tag
+wl tags rename <old> <new>        # Rename tag across all tasks
 ```
 
 ## Additional Resources
